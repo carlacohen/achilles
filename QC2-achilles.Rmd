@@ -1,11 +1,11 @@
 ---
-title: "Seurat workflow"
+title: "QC-2 workflow"
 author: "Carla Cohen"
 date: "`r Sys.Date()`"
 output: html_document
 ---
 
-# QC-2 workflow
+# QC-2 workflow: filtering
 
 This workflow follows the seurat qc-1 pipeline.
 
@@ -21,16 +21,22 @@ Since we want to set unique filters for each sample, I will not run this on the 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
+#set the directory for knitting
+knitr::opts_knit$set(root.dir ="/project/tendonhca/ccohen/chromium/analysis/20230118_achilles")
+
+
 library(tidyverse)
 library(Seurat)
 library(cowplot)
+library(SummarizedExperiment)
+
 
 ```
 
 
-Read in Seurat Objects 
+## Read in Seurat Objects 
 
-```{r}
+```{r, echo=FALSE}
 #make a list of sample files
 file_list <- list.files("RDS_objects.dir/", pattern="unfiltered_SeuratObject.rds")
 
@@ -47,7 +53,7 @@ for (i in 1:length(file_list)){
 ```
 
 
-Remove some samples with too few cells
+### Remove some samples with too few cells
 
 OMB1284-Ach-MB and OMB1284-Ach-MTJ have very low cell numbers (58 and 164 respectively). 
 
@@ -66,11 +72,11 @@ so <- so[c(-10, -11)]
 
 
 
-Filtering
+## Filtering
 
-Plot before filtering
 
-```{r}
+
+```{r, eval=FALSE, echo=FALSE}
 plot_list <- list()
 
 for (i in 1:length(so)) {
@@ -88,8 +94,7 @@ for (i in 1:length(so)) {
 
 Start off with crude filtering on each object
 
-Prior to assessing our metrics, we are going to perform filtering of those cells with less than 100 UMIs, keep cells with 300-6000 gene counts and with mitochondrial gene ratio < 0.1. These parameters can be updated in the yml file if required.
-
+Prior to assessing our metrics, we are going to perform filtering of those cells with less than 100 UMIs, keep cells with 300-6000 gene counts and with percent_mt < 10. These parameters can be updated for individual samples if required. 
 
 ```{r}
 
@@ -110,7 +115,8 @@ for (i in 1:length(so)){
 
 
 
-```{r}
+```{r, eval=FALSE, echo=FALSE}
+#quickly check the ouput
 plot_list <- list()
 
 for (i in 1:length(so)) {
@@ -124,8 +130,8 @@ for (i in 1:length(so)) {
 
 ### Save the RDS objects
 
-Save as a Seurat object.   
-Convert to a SingleCellExperiment and save.  
+Save as a Seurat object with suffix "_filtered_SeuratObject.rds".   
+Convert to a SingleCellExperiment and save with suffix "_raw_filtered_SingleCellExp.rds".  
 
 ```{r, echo=FALSE}
 
@@ -134,7 +140,7 @@ se <- list()
 for(i in 1:length(so_filtered)){
     
     #save the Seurat Object
-    saveRDS(so[[i]], file = paste0("RDS_objects.dir/", so_filtered[[i]]@project.name, "_filtered_SeuratObject.rds"))
+    saveRDS(so[[i]], file = paste0("/project/tendonhca/ccohen/chromium/analysis/20230118_achilles/RDS_objects.dir/", so_filtered[[i]]@project.name, "_filtered_SeuratObject.rds"))
     
     #Create a single cell object
     se[[i]] <- as.SingleCellExperiment(so_filtered[[i]])
@@ -143,24 +149,18 @@ for(i in 1:length(so_filtered)){
     rowData(se[[i]]) <- so_filtered[[i]]@assays$RNA@meta.features
     
     # Save the single cell object
-    saveRDS(se[[i]], paste0("RDS_objects.dir/", so_filtered[[i]]@project.name, "_raw_filtered_SingleCellExp.rds"))
+    saveRDS(se[[i]], paste0("/project/tendonhca/ccohen/chromium/analysis/20230118_achilles/RDS_objects.dir/", so_filtered[[i]]@project.name, "_raw_filtered_SingleCellExp.rds"))
 }
 
 
 ```
 
 
-
-
-
-
-Make plots as per QC-1
+## Visualisation of QC metrics after filtering 
 
 #### UMI counts per cell
 
 Plot the number of counts per cell (nCount_RNA)
-
-The UMI counts per cell should generally be above 500, although usable, it’s still low if between 500-1000 counts. If UMIs per cell is 500-1000 counts, then the cells probably should have been sequenced more deeply.
 
 ```{r, echo=FALSE, fig.height=10}
 
@@ -194,11 +194,11 @@ ggsave("QC_Figures.dir/ncount_RNA_filtered.png", p, device = "png", height = 10,
 
 
 ```
+
 #### Genes detected per cell
 
 Plot the number of genes per cell (nFeature_RNA)
 
-Seeing gene detection in the range of 500-5000 is normal for inDrop analysis. Similar expectations for gene detection as for UMI detection, although may be a bit lower than UMIs.
 
 ```{r, echo=FALSE, fig.height=10}
 
@@ -258,9 +258,8 @@ ggsave("QC_Figures.dir/percent_mt_filtered.png", p, device = "png", bg = "white"
 
 
 ```
-#### UMIs vs. genes detected 
 
-Poor quality cells are likely to have low genes and UMIs per cell. Therefore, a poor sample is likely to have cells in the lower left of the graph. Good cells should exhibit both higher number of genes per cell and higher numbers of UMIs. We also expect similar lines with similar slopes for all samples.
+#### UMIs vs. genes detected 
 
 Plot UMIs vs genes coloured by percent_mt
 
