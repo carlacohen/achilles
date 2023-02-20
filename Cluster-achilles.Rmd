@@ -212,3 +212,81 @@ for (i in 1:length(so)) {
 }
 ```
 
+
+
+
+From filter-achilles.Rmd
+
+Perform denoise on the filtered object, then recalculate the UMAP on the reduced number of PCs. 
+
+```{r, echo = FALSE}
+sce_decontX_doublet_discard_filtered_denoise <- list()
+df <- data.frame()
+
+for (i in 1:length(sce_decontX_doublet_discard_filtered)){
+    
+    sce_decontX_doublet_discard_filtered_denoise[[i]] <-
+        scran::denoisePCA(sce_decontX_doublet_discard_filtered[[i]],
+                          dec_filtered[[i]], 
+                          subset.row=hvg_filtered[[i]])
+    
+    sample <- project_title[[i]]
+    denoise_PCs <- ncol(reducedDim(sce_decontX_doublet_discard_filtered_denoise[[i]], "PCA"))
+    
+    df[i,1] <- sample
+    df[i, 2] <- denoise_PCs
+    
+    sce_decontX_doublet_discard_filtered_denoise[[i]] <- scater::runUMAP(sce_decontX_doublet_discard_filtered_denoise[[i]], 
+                                                                 dimred = 'PCA', 
+                                                                 pca = denoise_PCs,
+                                                                 external_neighbors=TRUE)
+    
+}
+    
+colnames(df) <- c("sample", "number of PCs")
+
+write.table (df, "Files/denoise_PCs.txt", row.names = FALSE, sep = "\t")
+
+df
+
+```
+
+Plot the UMAPs side by side, with and without denoise.
+
+```{r, fig.height = 12, message = FALSE}
+plot_list <- list()
+
+for (i in 1:length(sce_decontX_doublet_discard_filtered)){
+    
+    p1 <- plotReducedDim(sce_decontX_doublet_discard_filtered[[i]], dimred = "UMAP", colour_by = "sex")+
+        scale_colour_viridis_d(begin = 0, end = 0.75)+
+        ggtitle("Before denoise")+
+        theme(legend.position="none")
+    
+    p2 <- plotReducedDim(sce_decontX_doublet_discard_filtered_denoise[[i]], dimred = "UMAP", colour_by = "sex")+
+        scale_colour_viridis_d(begin = 0, end = 0.75)+
+        ggtitle("After denoise")+
+        theme(legend.position="none")
+
+        p3 <- plot_grid(p1, p2, nrow = 1)
+    title <- ggdraw() + draw_label(project_title[[i]], fontface='bold', size = 16)
+    plot_list[[i]] <- plot_grid(title, p3, ncol=1, rel_heights=c(0.1, 1))
+}
+
+
+#add an overall title and arrange the graphs on one page
+title <- ggdraw() + draw_label("Denoise PCA", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 24, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
+
+p
+    
+
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave("Filtered_Figures.dir/Denoise_UMAP.png", p, device = "png", width = 10, height = 14, bg = "white")
+ggsave("Filtered_Figures.dir/Denoise_UMAP.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
+```
