@@ -18,6 +18,7 @@ Run the script (in the scflow conda env)
 **Inputs:**
 
 SingleCellExperiment objects generated in qc-1
+Metadata file: Files.dir/metadata.txt
 
 **Steps:**
 1. Read in two SingleCellExperiment object from qc-1 (generated with min.cells = 3 and min.features = 20)
