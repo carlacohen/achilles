@@ -288,7 +288,7 @@ names(sce)
 
 
 # create a vector of unwanted files (this could come from the yml file)
-files_to_remove <- c("MSK1284-Ach-Enth", "MSK1284-Ach-MB", "MSK1284-Ach-MTJ", "MSK1250-Ach_MB2")
+files_to_remove <- c("MSK1284-Ach-Enth", "MSK1284-Ach-MB", "MSK1284-Ach-MTJ", "MSK1250-Ach-MB2")
 
 # get the positions of unwanted files in the list
 positions <- match(files_to_remove, names(sce))
@@ -1187,7 +1187,7 @@ For each level of filtering:
 Save as a SingleCellExperiment and save with suffix "_SingleCellExp.rds"
 Convert to a Seurat Object and save with suffix "_SeuratObject.rds".  
 
-```{r}
+```{r, message = FALSE, warning = FALSE}
 
 dir.create ("RDS_objects.dir/filtered")
 
