@@ -8,15 +8,14 @@ output: html_document
 This workflow follows the seurat qc-1 pipeline.
 
 The main steps are as follows:  
-* Read in Seurat Object from qc-1  
-* Empty droplets  
-* Ambient RNA content  
-* Doublets  
-* Statistical filtering using MADs  
-* Novelty  
-* Visualisation of QC metrics  
-* Denoise PCA  
-* Save SCE and Seurat Objects  
+ * Read in Seurat Object from qc-1  
+ * Empty droplets  
+ * Ambient RNA content  
+ * Doublets  
+ * Statistical filtering using MADs  
+ * Novelty  
+ * Visualisation of QC metrics  
+ * Save SCE and Seurat Objects  
   
 See /project/tendonhca/ccohen/git/achilles/docs/Filter-achilles.md  
 
@@ -48,11 +47,15 @@ metadata <- read.table("Files.dir/metadata.txt", sep = "\t", header = TRUE)
 ```
 
 
-## Read in SingleCellExperiment objects
+### Read in SingleCellExperiment objects
 
 ```{r}
 #make a list of unfiltered sample files
 file_list <- list.files("RDS_objects.dir/unfiltered", pattern="_raw_unfiltered_SingleCellExp.rds")
+
+cat("unfiltered sample files")
+cat ("\n")
+cat(file_list)
 
 #Make a new list for the sce objects
 sce <- list()
@@ -67,6 +70,10 @@ for (i in 1:length(file_list)){
 
 #make a list of  sample files with empty drops removed
 file_list <- list.files("RDS_objects.dir/unfiltered/", pattern="empty_SingleCellExp.rds")
+
+cat("filtered sample files (empty drops removed)")
+cat ("\n")
+cat(file_list)
 
 #Make a new list for the sce objects
 sce_empty <- list()
@@ -134,7 +141,8 @@ for (i in 1:length(sce_empty)){
 
 ### Empty droplet removal 
 
-What is the library profile of empty drops?
+#### What is the library profile of empty drops?  
+These plots show the distribution of number of counts for cells called as a including a cell (FALSE), being empty according to the algorithm (TRUE), or being empty on account of having <100 counts (NA).  
 
 
 ```{r, warning=FALSE}
@@ -176,7 +184,7 @@ ggsave("Filtered_Figures.dir/EmptyDrops_libsize.png", p, device = "png", width =
 ggsave("Filtered_Figures.dir/EmptyDrops_libsize.pdf", p, device = "pdf", width = 10, height = 12, bg = "white")
 ```
 
-What is the distribution of empty droplets by library size and number of features?
+#### What is the distribution of empty droplets by library size and number of features?
 
 ```{r, fig.height=20, fig.width=14, message=FALSE, warning = FALSE}
 plot_list <- list()
@@ -217,7 +225,7 @@ ggsave("Filtered_Figures.dir/EmptyDrops_distribution.pdf", p, device = "pdf", wi
 
 
 
-How does removal of empty droplets alter library size?
+#### How does removal of empty droplets alter library size?
 
 ```{r}
 
@@ -265,10 +273,10 @@ ggsave("Filtered_Figures.dir/EmptyDrops_cellnumber.pdf", p, device = "pdf", widt
 
 
 
-### Remove some samples with too few cells
+### Remove samples that have failed QC steps so far
 
 This step can be parameterised to go back in the pipeline. 
-For the achilles, MSK1284-Ach-MB and MSK1284-Ach-MTJ have very low cell numbers (58 and 164 respectively). 
+For the achilles, MSK1284-Ach-MB and MSK1284-Ach-MTJ have very low cell numbers (<200). 
 Also MSK1284-Ach-Enth and MSK1250-Ach_MB2 failed QC at the multiqc stage so should be removed. 
 
 
@@ -364,7 +372,8 @@ ggsave("Filtered_Figures.dir/Ambient_RNA.pdf", p, device = "pdf", width = 12, he
 
 ### Doublets
 
-Plot the library size of singlets vs doublets
+Plot the library size of singlets vs doublets.  
+This demonstrates that we cannot identify doublets on the basis of number of counts alone.
 
 ```{r}
 plot_list <- list()
@@ -402,7 +411,7 @@ ggsave("Filtered_Figures.dir/Doublets_libsize.pdf", p, device = "pdf", width = 1
 ```
 
 
-Create objects with doublets excluded, and with ambient RNA and doublets excluded. 
+Create sce objects with doublets excluded, and with ambient RNA and doublets excluded. 
 
 ```{r, echo=FALSE}
 
@@ -479,12 +488,12 @@ ggsave("Filtered_Figures.dir/Doublets_Ambient_cellnumber.pdf", p, device = "pdf"
 
 Use statistical filtering to remove cells with low numbers of counts and features. 
 
-Calculate QC metrics using perCellQCFilters which calculates outliers > 3 MADs from median of the data
-- number of counts
-- number of features
-- number of mitochondrial reads
+Calculate QC metrics using perCellQCFilters which calculates outliers > 3 MADs from median of the data  
+- number of counts  
+- number of features  
+- number of mitochondrial reads  
 
-Add these metrics to the colData.
+Add these metrics to the colData.  
 
 ```{r, echo=FALSE}
 
@@ -508,11 +517,11 @@ for (i in 1:length(sce_empty)){
 
 ### Visualise the outliers 
 
-On the object with empty droplets removed:  
+#### Statistical filtering on the object with empty droplets removed:  
 
-Plot the number of counts per cell (nCount_RNA) with low library size cells. 
-Plot the number of features per cell (nFeature_RNA) with low number of features. 
-Plot the mitochondrial content (percent_mt) with high percent mt. 
+Plot the number of counts per cell (nCount_RNA) with low library size cells.  
+Plot the number of features per cell (nFeature_RNA) with low number of features.  
+Plot the mitochondrial content (percent_mt) with high percent mt.  
 
 
 ```{r, fig.width=12, fig.height=14, warning=FALSE}
@@ -585,7 +594,7 @@ ggsave("Filtered_Figures.dir/Statistical_filtering.pdf", p, device = "pdf", widt
 
 ```
 
-Plot the number of counts vs number of features with recommended discarded cells.
+#### Plot the number of counts vs number of features with recommended discarded cells.
 
 ```{r, fig.height=20, fig.width=14, message = FALSE}
 plot_list <- list()
@@ -622,11 +631,12 @@ ggsave("Filtered_Figures.dir/Statistical_filtering.pdf", p, device = "pdf", widt
 ```
 
 
-On the object with ambient RNA and doublets removed:  
 
-Plot the number of counts per cell (nCount_RNA) with low library size cells. 
-Plot the number of features per cell (nFeature_RNA) with low number of features. 
-Plot the mitochondrial content (percent_mt) with high percent mt. 
+#### Statistical filtering on the object with ambient RNA and doublets removed:  
+
+Plot the number of counts per cell (nCount_RNA) with low library size cells.  
+Plot the number of features per cell (nFeature_RNA) with low number of features.  
+Plot the mitochondrial content (percent_mt) with high percent mt.  
 
 
 ```{r, fig.width=12, fig.height=14, warning = FALSE}
@@ -739,10 +749,11 @@ ggsave("Filtered_Figures.dir/Statistical_filtering_ambient_doublets_removed.pdf"
 
 ### Filtering 
 
-Create an object removing the "discard" droplets (sce_decontX_doublet_discard_filtered).
-Create an object removing low_lib_size and low_n_features but retaining all mitochondrial content (sce_decontX_doublet_low_filtered). 
+Create an object removing the "discard" droplets (sce_decontX_doublet_discard_filtered).  
+Create an object removing low_lib_size and low_n_features but retaining all mitochondrial content (sce_decontX_doublet_low_filtered).  
 
 Note: May want to create other objects here according to which filters should be used. 
+e.g. retain decontX --> remove doublets --> remove low nCounts and nFeatures --> retain mitochondrial reads  
 
 Note: An important thing to note is that, now that we have filtered this object, some of the QC metrics that were calculated across all genes (for colData) and across all cells (for rowData) are no longer correct for the filtered data set. We need to remove them, and if necessary recalculate them.
 
@@ -779,7 +790,7 @@ for (i in 1:length(sce_decontX_doublet_filtered)){
 
 ```
 
-Visualise how these filters affect the library size. 
+#### Visualise how these filters affect the library size.  
 
 
 ```{r}
@@ -831,7 +842,7 @@ ggsave("Filtered_Figures.dir/Discard_cellnumber.pdf", p, device = "pdf", width =
 ```
 
 
-How does filtering alter the novelty?
+#### How does filtering alter the novelty?
 
 ```{r}
 
@@ -854,7 +865,7 @@ for (i in 1:length(sce_empty)) {
             ggplot(aes(x=log10GenesPerUMI, fill = sample)) +
             geom_density() +
             scale_fill_viridis_d()+
-            ggtitle("afer filtering")+
+            ggtitle("after filtering")+
             theme(plot.title = element_text(size = 12))+
             xlim(0.5, 1)+
             theme_cowplot()+
@@ -866,7 +877,7 @@ for (i in 1:length(sce_empty)) {
         
 }
 
-title <- ggdraw() + draw_label("Novelty before & afer filtering", fontface='bold', size = 24)
+title <- ggdraw() + draw_label("Novelty before & after filtering", fontface='bold', size = 24)
 p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
 p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
 
@@ -881,16 +892,17 @@ ggsave("Filtered_Figures.dir/Novelty_filtering.pdf", p, device = "pdf", width = 
 ```
 
 
-### View the QC metrics on PCA and UMAP
+### View the QC metrics on UMAP
 
 Here we will do some dimensionality reduction in order to visualise the various QC metrics. 
 
-Steps to be performed
-- log normalise the counts
-- calculate the top variable genes & visualise
-- perform PCA & visualise
-- perform UMAP & visualise
+Steps to be performed:  
+- log normalise the counts  
+- calculate the top variable genes & visualise  
+- perform PCA  
+- perform UMAP & visualise  
 
+### Dimensionality reduction on the object with only empty droplets removed  
 
 ```{r, echo = FALSE}
 dec_empty <- list()
@@ -915,12 +927,9 @@ for (i in 1:length(sce_empty)){
     
 ```
 
-- Visualise the relation between the mean expression of each gene and the total / biological / technical variance of each gene.
+
 - Plot the highly variable genes
 
-total = Mean of total gene expression 
-bio = Mean of gene expression from biological variance 
-tech = Mean of gene expression from technical variance
 
 ```{r}
 plot_list <-list()
@@ -964,54 +973,9 @@ ggsave("Filtered_Figures.dir/Highly_variable_genes.pdf", p, device = "pdf", widt
 ```
 
 
-
-
-Plot PCAs
-- where are the doublets?
-- where are the discarded cells?
-Less informative than UMAPs (shown below)
-
-```{r, include = FALSE, fig.height=20}
-
-plot_list <- list()
-
-for(i in 1:length(sce_empty)){
-    
-    p1 <- plotReducedDim(sce_empty[[i]], dimred = "PCA", colour_by = "scDblFinder.class")+
-        scale_colour_viridis_d(begin = 0, end = 0.75)
-
-    p2 <- plotReducedDim(sce_empty[[i]], dimred = "PCA", colour_by = "low_n_features")+
-        scale_colour_viridis_d(begin = 0, end = 0.75)
-    
-    p3 <- plotReducedDim(sce_empty[[i]], dimred = "PCA", colour_by = "high_percent_mt")+
-        scale_colour_viridis_d(begin = 0, end = 0.75)
-    
-    p4 <- plot_grid(p1, p2, p3, nrow = 1)
-    title <- ggdraw() + draw_label(project_title[[i]], fontface='bold', size = 16)
-    plot_list[[i]] <- plot_grid(title, p4, ncol=1, rel_heights=c(0.1, 1))
-}
-
-
-#add an overall title and arrange the graphs on one page
-title <- ggdraw() + draw_label("Doublets and Statistical outliers", fontface='bold', size = 24)
-p <- plot_grid(plotlist = plot_list, label_size = 24, ncol = 1)
-p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
-
-p
-
-
-```
-
-```{r, eval = FALSE, include=FALSE}
-#save the plot
-ggsave("Filtered_Figures.dir/Outliers_PCA.png", p, device = "png", width = 12, height = 24, bg = "white")
-ggsave("Filtered_Figures.dir/Outliers_PCA.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
-```
-
-
-Plot UMAPs
-- where are the doublets?
-- where are the discarded cells?
+Plot UMAPs  
+- where are the doublets?  
+- where are the discarded cells?  
 
 ```{r, warning=FALSE, message = FALSE, fig.width = 12, fig.height=28}
 
@@ -1054,16 +1018,16 @@ ggsave("Filtered_Figures.dir/Outliers_UMAP.png", p, device = "png", width = 12, 
 ggsave("Filtered_Figures.dir/Outliers_UMAP.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
 ```
 
+### Dimensionality reduction on the filtered object  
 
-## Dimensional reduction on filtered object
 
-Perform PCA and UMAP on filtered object with all cells marked "discard" removed. 
+Perform PCA and UMAP on filtered object with all cells marked "discard" removed.   
 
-So first do the same steps as above.
-- log normalise the counts
-- calculate the top variable genes & visualise
-- perform PCA & visualise
-- perform UMAP & visualise
+So first do the same steps as above.  
+- log normalise the counts  
+- calculate the top variable genes & visualise  
+- perform PCA  
+- perform UMAP & visualise  
 
 
 ```{r, message=FALSE}
@@ -1184,8 +1148,16 @@ ggsave("Filtered_Figures.dir/UMAP_after_filtering.pdf", p, device = "pdf", width
 ### Save the RDS objects
 
 For each level of filtering:  
-Save as a SingleCellExperiment and save with suffix "_SingleCellExp.rds"
+Save as a SingleCellExperiment and save with suffix "_SingleCellExp.rds"  
 Convert to a Seurat Object and save with suffix "_SeuratObject.rds".  
+
+sce_empty: empty droplets removed, ambient RNA identified, doublets identified, MADs identified  
+sce_decontX_filtered: empty droplets removed, ambient RNA removed  
+sce_doublet_filtered: empty droplets removed, doublets removed  
+sce_doublet_decontX_filtered: , empty droplets removed, ambient RNA and doublets removed  
+sce_decontX_doublet_low_filtered: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed  
+sce_decontX_doublet_discard_filtered: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed, high mitochondrial reads removed  
+
 
 ```{r, message = FALSE, warning = FALSE}
 
