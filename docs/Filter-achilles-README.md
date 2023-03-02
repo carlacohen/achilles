@@ -12,67 +12,48 @@ Run the script (in the scflow conda env)
 
      nohup Rscript -e "rmarkdown::render('Filter-achilles.Rmd')"
 
+Alternatively the script could be submitted as a job to the cluster using slurm.   
 
-### Filter-achilles.Rmd
+### Filter-achilles.Rmd  
 
-**Inputs:**
+**Inputs:**  
 
-SingleCellExperiment objects generated in qc-1
-Metadata file: Files.dir/metadata.txt
+SingleCellExperiment objects generated in qc-1  
+Metadata file: Files.dir/metadata.txt  
 
-**Steps:**
-1. Read in two SingleCellExperiment object from qc-1 (generated with min.cells = 3 and min.features = 20)
-    sce = original unfiltered object
-    sce_empty = object with empty droplets removed  
+**Steps:**  
+1. Read in two SingleCellExperiment objects from qc-1  
+    sce = original unfiltered object  
+    sce_empty = object with empty droplets removed    
 
-2. Empty droplets  
--  Visualise the library size of empty droplets
-- Visualise the distribution of empty droplets by library size and number of features
-- Check how many droplets are removed if empty droplets is implemented
+2. Visualise & remove empty droplets  
 
-3. Remove two samples that have very low cell numbers  
-This is samples OMB1284-Ach-MB and OMB1284-Ach-MTJ.  They need to removed from all the lists created so far. 
+3. Remove samples that have very low cell numbers or that have failed earlier QC (multiqc)  
 
-4.  Ambient RNA
-- Create a new object with ambient RNA removed
-- Plot the ambient RNA content on the decontX_UMAP
+4. Visualise & remove Ambient RNA
 
-5. Doublets 
-- Plot the library size of singlets vs doublets  
-- Create new objects wih doublets excluded, and with ambient RNA and doublets excluded.  
-- Check how many cells were removed at each step  
+5. Visualise & remove Doublets 
 
-6. Statistical filtering using MADs
-- Use statistical analysis to identify cells with low numbers of counts and features, and high mitochondrial content (> 3 MADs)  
-- Add these metrics to the colData  and visualise the outliers  
-- Create new objects with outliers removed (either just low counts/features or with all outliers removed)
-- Visualise how this filtering alters the number of droplets  
+6. Perform statistical filtering using MADs  
 
-7.  Novelty  
-- Visualise how filtering affects the novelty  
+7.  Visualise how filtering affects the novelty  
 
-8.  Visualisation of QC metrics on PCA and UMAP  
-- On the sce_empty and filtered objects: 
-    - Perform log normalisation, identify variable genes, calculate PCA and UMAP  
-    - Visualise the relation between the mean expression of each gene and the total / biological / technical variance of each gene.  
-    - Visualise the QC metrics on UMAP  
+8.  Visualise QC metrics on UMAP  
 
-9. Denoise PCA
-- Perform denoise PCA to identify the PCs that are due to biological variation only
-- Recalculate the UMAP on the reduced number of PCs and plot 
+9.  Perform PCA & UMAP on filtered object  
 
-10.  Save the Single Cell Experiment and Seurat Objects as RDS files
-- sce_empty: empty drops removed
-- sce_decontX_doublet_filtered: ambient RNA & doublets removed
-- sce_decontX_doublet_low_filtered: ambient RNA and doublets removed, low nCount and nFeature removed  
-- sce_decontX_doublet_discard_filtered: ambient RNA and doublets removed, low nCount and nFeature removed, high mitochondrial reads removed  
-- sce_decontX_doublet_discard_filtered_denoise: ambient RNA and doublets removed, low nCount and nFeature removed, high mitochondrial reads removed, denoise performed
-- convert to Seurat Object and save (filtered only)  
+10.  Save the Single Cell Experiment and Seurat Objects as RDS files  
+ - sce_empty: empty droplets removed, ambient RNA identified, doublets identified, MADs identified  
+ - sce_decontX_filtered: empty droplets removed, ambient RNA removed  
+ - sce_doublet_filtered: empty droplets removed, doublets removed  
+ - sce_doublet_decontX_filtered: , empty droplets removed, ambient RNA and doublets removed  
+ - sce_decontX_doublet_low_filtered: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed  
+ - sce_decontX_doublet_discard_filtered: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed, high mitochondrial reads removed  
 
 
 **Outputs:**
 
-Filter-achilles.Rmd knitted to html
-Filtered SingleCellExperiment and Seurat Object RDS objects saved in RDS_objects.dir
-QC plots saved as .png and .pdf files in Filtered_Figures.dir
+Filter-achilles.Rmd knitted to html  
+Filtered SingleCellExperiment and Seurat Object RDS objects saved in RDS_objects.dir  
+QC plots saved as .png and .pdf files in Filtered_Figures.dir  
 

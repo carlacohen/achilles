@@ -25,10 +25,7 @@ See /project/tendonhca/ccohen/git/achilles/docs/Filter-achilles.md
 ```{r setup, include=FALSE}
 #set default to not print code and alter figure dimensions
 knitr::opts_chunk$set(echo = FALSE, fig.width=10, fig.height=16) 
-
-#set the directory for knitting
-knitr::opts_knit$set(root.dir ="/project/tendonhca/ccohen/chromium/analysis/20230118_achilles")
-
+# could parameterise fig width and height according to number of samples analysed
 
 library(tidyverse)
 library(Seurat)
@@ -193,7 +190,7 @@ for (i in 1:length(sce_empty)){
     p <- colData(sce[[i]]) %>% 
         as.data.frame() %>%
         ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=empty_drop)) + 
-        geom_point() + 
+        geom_point(size = 0.2) + 
         scale_colour_viridis_d(begin = 0, end = 0.75)+
         stat_smooth(method=lm, colour = "black") +
         scale_x_log10() + 
@@ -602,7 +599,7 @@ for (i in 1:length(sce_empty)){
     plot_list[[i]] <- colData(sce_empty[[i]]) %>% 
         as.data.frame() %>%
         ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=discard)) + 
-        geom_point() + 
+        geom_point(size = 0.2) + 
         scale_colour_viridis_d(begin = 0, end = 0.75)+
         stat_smooth(method=lm, colour = "black") +
         scale_x_log10() + 
@@ -715,7 +712,7 @@ for (i in 1:length(sce_decontX_doublet_filtered)){
     plot_list[[i]] <- colData(sce_decontX_doublet_filtered[[i]]) %>% 
         as.data.frame() %>%
         ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=discard)) + 
-        geom_point() + 
+        geom_point(size = 0.1) + 
         scale_colour_viridis_d(begin = 0, end = 0.75)+
         stat_smooth(method=lm, colour = "black") +
         scale_x_log10() + 
