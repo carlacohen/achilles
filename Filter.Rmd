@@ -1,5 +1,5 @@
 ---
-title: "Filtering workflow for achilles data"
+title: "Filtering workflow"
 author: "Carla Cohen"
 date: "`r Sys.Date()`"
 output: html_document
@@ -17,14 +17,13 @@ The main steps are as follows:
  * Visualisation of QC metrics  
  * Save SCE and Seurat Objects  
   
-See /project/tendonhca/ccohen/git/achilles/docs/Filter-achilles.md  
-
-
+TO DO
+Finish parameterising figures type
+Finish figure dimensions
 
 
 ```{r setup, include=FALSE}
-#set default to not print code and alter figure dimensions
-knitr::opts_chunk$set(echo = FALSE, fig.width=10, fig.height=16) 
+ 
 
 library(tidyverse)
 library(Seurat)
@@ -50,6 +49,9 @@ ini <- read_yaml("filter_pipeline.yml")
 ### Read in SingleCellExperiment objects
 
 ```{r}
+#set default to not print code and alter figure dimensions according to the number of files
+knitr::opts_chunk$set(echo = FALSE, fig.width=10, fig.height=length(file_list)) 
+
 #make a list of unfiltered sample files
 file_list <- list.files("RDS_objects.dir/unfiltered", pattern="_raw_unfiltered_SingleCellExp.rds")
 
@@ -180,13 +182,13 @@ p
 dir.create ("Filtered_Figures.dir", showWarnings = FALSE)
 
 #save the plot
-ggsave("Filtered_Figures.dir/EmptyDrops_libsize.png", p, device = "png", width = 10, height = 12, bg = "white")
-ggsave("Filtered_Figures.dir/EmptyDrops_libsize.pdf", p, device = "pdf", width = 10, height = 12, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/EmptyDrops_libsize.", ini$file_type), p, device = ini$file_type, width = 10, height = length(file_list), bg = "white")
+
 ```
 
 #### What is the distribution of empty droplets by library size and number of features?
 
-```{r, fig.height=20, fig.width=14, message=FALSE, warning = FALSE}
+```{r, fig.height=length(file_list)*1.5, fig.width=14, message=FALSE, warning = FALSE}
 plot_list <- list()
 
 for (i in 1:length(sce_empty)){
@@ -219,8 +221,8 @@ p
 ```{r, include=FALSE}
 
 #save the plot
-ggsave("Filtered_Figures.dir/EmptyDrops_distribution.png", p, device = "png", width = 10, height = 12, bg = "white")
-ggsave("Filtered_Figures.dir/EmptyDrops_distribution.pdf", p, device = "pdf", width = 10, height = 12, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/EmptyDrops_distribution.", ini$file_type), p, device = ini$file_type, width = 10, height = length(file_list), bg = "white")
+
 ```
 
 
@@ -267,8 +269,9 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/EmptyDrops_cellnumber.png", p, device = "png", width = 10, height = 12, bg = "white")
-ggsave("Filtered_Figures.dir/EmptyDrops_cellnumber.pdf", p, device = "pdf", width = 10, height = 12, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/EmptyDrops_cellnumber.", ini$file_type), p, device = ini$file_type, 
+       width = 10, height = length(file_list)*1.2, bg = "white")
+
 ```
 
 
@@ -322,7 +325,7 @@ Remove ambient RNA with decontX contamination score > 0.75 and save as new objec
 
 Visualise the results of ambient RNA removal.
 
-```{r, fig.width=12, fig.height=32, message = FALSE}
+```{r, fig.width=12, fig.height=length(file_list)*2, message = FALSE}
 
 
 plot_list <- list()
@@ -363,8 +366,7 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Ambient_RNA.png", p, device = "png", width = 12, height = 24, bg = "white")
-ggsave("Filtered_Figures.dir/Ambient_RNA.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Ambient_RNA.", ini$file_type), p, device = ini$file_type, width = 12, height = length(file_list)*2, bg = "white")
 
 ```
 
@@ -405,8 +407,7 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Doublets_libsize.png", p, device = "png", width = 10, height = 16, bg = "white")
-ggsave("Filtered_Figures.dir/Doublets_libsize.pdf", p, device = "pdf", width = 10, height = 16, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Doublets_libsize.", ini$file_type), p, device = ini$file_type, width = 10, height = length(file_list)*1.5, bg = "white")
 
 ```
 
@@ -477,8 +478,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Doublets_Ambient_cellnumber.png", p, device = "png", width = 10, height = 16, bg = "white")
-ggsave("Filtered_Figures.dir/Doublets_Ambient_cellnumber.pdf", p, device = "pdf", width = 10, height = 16, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Doublets_Ambient_cellnumber.", ini$file_type), p, device = ini$file_type, 
+       width = 10, height = length(file_list)*1.2, bg = "white")
 
 ```
 
@@ -524,7 +525,7 @@ Plot the number of features per cell (nFeature_RNA) with low number of features.
 Plot the mitochondrial content (percent_mt) with high percent mt.  
 
 
-```{r, fig.width=12, fig.height=14, warning=FALSE}
+```{r, fig.width=length(file_list)+(15/length(file_list)), fig.height=14, warning=FALSE}
 
 df <- list()
 
@@ -549,7 +550,7 @@ df_all <- plyr::ldply(df)
 
 #plot low library size
 p1 <- ggplot(df_all, aes(x = orig.ident, y = nCount_RNA, fill = low_lib_size))+
-    geom_violin(trim = FALSE, width = 3, position = position_dodge(0))+
+    geom_violin(trim = FALSE, width = 1, position = position_dodge(0))+
     scale_y_log10() + 
     scale_fill_viridis_d(begin = 0, end = 0.75)+
     theme_cowplot()+
@@ -558,7 +559,7 @@ p1 <- ggplot(df_all, aes(x = orig.ident, y = nCount_RNA, fill = low_lib_size))+
     
 # plot low number of features
 p2 <- ggplot(df_all, aes(x = orig.ident, y = nFeature_RNA, fill = low_n_features))+
-    geom_violin(trim = FALSE, width = 2, position = position_dodge(0))+
+    geom_violin(trim = FALSE, width = 1, position = position_dodge(0))+
     scale_y_log10() + 
     scale_fill_viridis_d(begin = 0, end = 0.75)+
     theme_cowplot()+
@@ -589,14 +590,16 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Statistical_filtering.png", p, device = "png", width = 12, height = 14, bg = "white")
-ggsave("Filtered_Figures.dir/Statistical_filtering.pdf", p, device = "pdf", width = 12, height = 14, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Statistical_filtering.", ini$file_type), p, device = ini$file_type, 
+       width = length(file_list)+(15/length(file_list)), height = 12, bg = "white")
+
 
 ```
 
 #### Plot the number of counts vs number of features with recommended discarded cells.
 
-```{r, fig.height=20, fig.width=14, message = FALSE}
+```{r, fig.height=length(file_list)*1.5, fig.width=14, message = FALSE}
+
 plot_list <- list()
 for (i in 1:length(sce_empty)){
     plot_list[[i]] <- colData(sce_empty[[i]]) %>% 
@@ -625,8 +628,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Statistical_filtering.png", p, device = "png", width = 16, height = 30, bg = "white")
-ggsave("Filtered_Figures.dir/Statistical_filtering.pdf", p, device = "pdf", width = 16, height = 30, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Statistical_filtering.", ini$file_type), p, device = ini$file_type, 
+       width = 16, height = length(file_list)*2, bg = "white")
 
 ```
 
@@ -639,7 +642,7 @@ Plot the number of features per cell (nFeature_RNA) with low number of features.
 Plot the mitochondrial content (percent_mt) with high percent mt.  
 
 
-```{r, fig.width=12, fig.height=14, warning = FALSE}
+```{r, fig.width=length(file_list)+(15/length(file_list)), fig.height = 14, warning = FALSE}
 
 df <- list()
 
@@ -664,7 +667,7 @@ df_all <- plyr::ldply(df)
 
 #plot low library size
 p1 <- ggplot(df_all, aes(x = orig.ident, y = nCount_RNA, fill = low_lib_size))+
-    geom_violin(trim = FALSE, width = 3, position = position_dodge(0))+
+    geom_violin(trim = FALSE, width = 1, position = position_dodge(0))+
     scale_y_log10() + 
     scale_fill_viridis_d(begin = 0, end = 0.75)+
     theme_cowplot()+
@@ -673,7 +676,7 @@ p1 <- ggplot(df_all, aes(x = orig.ident, y = nCount_RNA, fill = low_lib_size))+
     
 # plot low number of features
 p2 <- ggplot(df_all, aes(x = orig.ident, y = nFeature_RNA, fill = low_n_features))+
-    geom_violin(trim = FALSE, width = 2, position = position_dodge(0))+
+    geom_violin(trim = FALSE, width = 1, position = position_dodge(0))+
     scale_y_log10() + 
     scale_fill_viridis_d(begin = 0, end = 0.75)+
     theme_cowplot()+
@@ -683,7 +686,7 @@ p2 <- ggplot(df_all, aes(x = orig.ident, y = nFeature_RNA, fill = low_n_features
 # plot mitochondrial content
 
 p3 <- ggplot(df_all, aes(x = orig.ident, y = percent_mt, fill = high_percent_mt))+
-    geom_violin(trim = FALSE, width = 2, position = position_dodge(0))+
+    geom_violin(trim = FALSE, width = 1, position = position_dodge(0))+
     scale_fill_viridis_d(begin = 0, end = 0.75)+
     theme_cowplot()+
     theme(axis.text.x = element_text(angle = 45, hjust=1))+
@@ -702,14 +705,14 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Statistical_outliers_ambient_doublet.png", p, device = "png", width = 12, height = 14, bg = "white")
-ggsave("Filtered_Figures.dir/Statistical_outliers_ambient_doublet.pdf", p, device = "pdf", width = 12, height = 14, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Statistical_outliers_ambient_doublet.", ini$file_type), p, device = ini$file_type, 
+       width = length(file_list)+(15/length(file_list)), height = 14, bg = "white")
 
 ```
 
 Plot the number of counts vs number of features with recommended discarded cells.
 
-```{r, fig.height=20, fig.width=14, message = FALSE}
+```{r, fig.height=length(file_list)*1.5, fig.width=14, message = FALSE}
 plot_list <- list()
 for (i in 1:length(sce_decontX_doublet_filtered)){
     plot_list[[i]] <- colData(sce_decontX_doublet_filtered[[i]]) %>% 
@@ -740,8 +743,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Statistical_filtering_ambient_doublets_removed.png", p, device = "png", width = 16, height = 30, bg = "white")
-ggsave("Filtered_Figures.dir/Statistical_filtering_ambient_doublets_removed.pdf", p, device = "pdf", width = 16, height = 30, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Statistical_filtering_ambient_doublets_removed.", ini$file_type), p, device = ini$file_type, 
+       width = 16, height = length(file_list)*2, bg = "white")
 
 ```
 
@@ -837,8 +840,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Discard_cellnumber.png", p, device = "png", width = 10, height = 12, bg = "white")
-ggsave("Filtered_Figures.dir/Discard_cellnumber.pdf", p, device = "pdf", width = 10, height = 12, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Discard_cellnumber.", ini$file_type), p, device = ini$file_type, width = 10, height = length(file_list), bg = "white")
+
 ```
 
 
@@ -887,8 +890,9 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Novelty_filtering.png", p, device = "png", width = 12, height = 16, bg = "white")
-ggsave("Filtered_Figures.dir/Novelty_filtering.pdf", p, device = "pdf", width = 10, height = 12, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Novelty_filtering.", ini$file_type), p, device = ini$file_type, 
+       width = 12, height = length(file_list), bg = "white")
+
 ```
 
 
@@ -968,8 +972,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Highly_variable_genes.png", p, device = "png", width = 12, height = 24, bg = "white")
-ggsave("Filtered_Figures.dir/Highly_variable_genes.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Highly_variable_genes.", ini$file_type), p, device = ini$file_type, 
+       width = 12, height = length(file_list)*2, bg = "white")
 ```
 
 
@@ -977,7 +981,7 @@ Plot UMAPs
 - where are the doublets?  
 - where are the discarded cells?  
 
-```{r, warning=FALSE, message = FALSE, fig.width = 12, fig.height=28}
+```{r, warning=FALSE, message = FALSE, fig.width = 12, fig.height=length(file_list)*2}
 
 plot_list <- list()
 
@@ -1014,8 +1018,9 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Outliers_UMAP.png", p, device = "png", width = 12, height = 24, bg = "white")
-ggsave("Filtered_Figures.dir/Outliers_UMAP.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Outliers_UMAP.", ini$file_type), p, device = ini$file_type, 
+       width = 12, height = length(file_list)*2, bg = "white")
+
 ```
 
 ### Dimensionality reduction on the filtered object  
@@ -1106,8 +1111,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Highly_variable_genes_filtered.png", p, device = "png", width = 10, height = 12, bg = "white")
-ggsave("Filtered_Figures.dir/Highly_variable_genes_filtered.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/Highly_variable_genes_filtered.", ini$file_type), p, device = ini$file_type, 
+       width = 10, height = length(file_list), bg = "white")
 ```
 
 Plot UMAPs after ambient RNA, doublet and outlier removal
@@ -1141,8 +1146,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/UMAP_after_filtering.png", p, device = "png", width = 12, height = 16, bg = "white")
-ggsave("Filtered_Figures.dir/UMAP_after_filtering.pdf", p, device = "pdf", width = 12, height = 16, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/UMAP_after_filtering.", ini$file_type), p, device = ini$file_type, 
+       width = 12, height = length(file_list), bg = "white")
 ```
 
 
@@ -1174,8 +1179,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/UMAP_percent_mt.png", p, device = "png", width = 12, height = 16, bg = "white")
-ggsave("Filtered_Figures.dir/UMAP_percent_mt.pdf", p, device = "pdf", width = 12, height = 16, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/UMAP_percent_mt.", ini$file_type), p, device = ini$file_type, 
+       width = 12, height = length(file_list), bg = "white")
 ```
 
 ```{r}
@@ -1204,8 +1209,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/UMAP_nCount_RNA.png", p, device = "png", width = 12, height = 16, bg = "white")
-ggsave("Filtered_Figures.dir/UMAP_nCount_RNA.pdf", p, device = "pdf", width = 12, height = 16, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/UMAP_nCount_RNA.", ini$file_type), p, device = ini$file_type, 
+       width = 12, height = length(file_list), bg = "white")
 ```
 
 
@@ -1233,8 +1238,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/UMAP_nFeature_RNA.png", p, device = "png", width = 12, height = 16, bg = "white")
-ggsave("Filtered_Figures.dir/UMAP_nFeature_RNA.pdf", p, device = "pdf", width = 12, height = 16, bg = "white")
+ggsave(paste0("Filtered_Figures.dir/UMAP_nFeature_RNA.", ini$file_type), p, device = ini$file_type, 
+       width = 12, height = length(file_list), bg = "white")
 ```
 
 
