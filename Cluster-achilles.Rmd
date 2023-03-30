@@ -6,26 +6,41 @@ output: html_document
 ---
 
 
+This workflow is part of the scflow seurat pipeline and performs dimensionality reduction and clustering of individual samples. 
+
+The following parameters can be specified in the yml file:
+* Files to remove (e.g. that have failed QC)  
+* Normalisation method (SCTransform, SCTransform v2, Log Normalisation)  
+* File format (e.g. png, pdf, svg)  
+* Clustering resoultion. The script calculates resolutions from 0.1-1.0 in 0.1 increments. The default is 0.5.  
+
+
 Steps in the workflow  
 *  Read in filtered RDS objects  
-*  Compare SCTransfrom v1 and v2
-  *  Normalise using SCTransform
-  *  Perform PCA, UMAP and clustering  
-  *  Convert EnsemblIDs to gene names in SCT assay
-  *  Visualise variable genes, Elbow Plot and UMAPs
+*  Convert EnsemblIDs to gene names in RNA  assay
+*  Perform Normalisation using preferred method, followed by RunPCA, FindNeighbours and RunUMAP. Default parameters are used here, these will be optimised later. 
+* Perform clustering at multiple resolutions
+*  Convert EnsemblIDs to gene names  
+* Save the RDS files in /RDS_objects.dir/clustered/{norm method}
+*  Visualise variable genes, Elbow Plot, clustree and UMAPs  
   
 
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE) #set optimal fig.width and fig.height here
+knitr::opts_chunk$set(echo = FALSE, fig.width = 10, fig.height = 16) #set optimal fig.width and fig.height here
 
 library(tidyverse)
 library(Seurat)
-#library(biomaRt)
 library(scater)
 library(cowplot)
-library("glmGamPoi")
+library(glmGamPoi)
+library(clustree)
+library(yaml)
+library(viridis)
+
+# Read in the yml file
+ini <- read_yaml("pipeline.yml")
 
 ```
 
@@ -48,11 +63,8 @@ cat ("\n")
 names(file_list)
 
 
-# create a vector of unwanted files (this could come from the yml file)
-files_to_remove <- c("MSK1250-Ach-MB2", "MSK1284-Ach-Enth")
-
 # get the positions of unwanted files in the list
-positions <- match(files_to_remove, names(file_list))
+positions <- match(ini$files_to_remove, names(file_list))
 
 # remove certain files using those names
 file_list <- file_list[-c(positions)] 
@@ -86,10 +98,70 @@ for (i in 1:length(file_list)){
 ```
 
 
-## Compare SCTransform with SCTransform v 2
+Convert rownames of RNA assay data & counts slots to unique names
 
-Perform SCTransform
+
+```{r, include=FALSE}
+
+for (i in 1:length(so)){
+  
+  # add gene names to RNA assay
+  df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$RNA@data)), so[[i]]@assays$RNA@meta.features)
+  rownames(so[[i]]@assays$RNA@data) <- df$unique_name
+  rownames(so[[i]]@assays$RNA@counts) <- df$unique_name
+
+}
+
+```
+
+
+### Extract some names that depend on the normalisation method performed
+
+```{r}
+
+if (ini$normalisation_method == "SCTransform"){
+        
+        # save the reduction names
+        pca_name <- "sct.pca"
+        umap_name <- "sct.umap"
+        
+        # save the resolution prefix
+        res_prefix <- "SCT_snn_res."
+        
+    } else if (ini$normalisation_method == "SCTransformv2"){
+    
+    # save the reduction names
+     pca_name <- "sctv2.pca"
+     umap_name <- "sctv2.umap"
+     
+     # save the resolution prefix
+     res_prefix <- "SCTv2_snn_res."
+    
+    } else if (ini$normalisation_method == "LogNormalise"){
+    
+     # save the reduction names
+     pca_name <- "lognorm.pca"
+     umap_name <- "lognorm.umap"
+     
+     # save the resolution prefix
+     res_prefix <- "RNA_snn_res."
+        
+}
+    
+print(ini$normalisation_method) 
+print(pca_name)
+print(umap_name)
+print(res_prefix)
+
+```
+
+
+
+## Perform Normalisation 
+
+Default method is SCTransform, can also update to logNormalise or SCTransform v2 using the yml file. 
 Perform the downstream steps with default parameters and using 30 PCs (this will be optimised later)
+
 
 ```{r}
 
@@ -98,15 +170,23 @@ for (i in 1:length(so)){
     cat ("Analysing sample", i, ":", so[[i]]@project.name)
     cat ("\n")
     
-    cat("run SCTransform")
-    
-    so[[i]] <- SCTransform(so[[i]],
+    if (ini$normalisation_method == "SCTransform"){
+        
+        so[[i]] <- SCTransform(so[[i]],
                            method = "glmGamPoi", #added to increase efficiency
                            vars.to.regress = "percent_mt") %>% 
         RunPCA(reduction.name = "sct.pca") %>% 
         FindNeighbors(dims = 1:30, reduction = "sct.pca") %>%
-        RunUMAP(dims = 1:30, reduction = "sct.pca", reduction.name = "sct.umap") %>% 
-        FindClusters(graph.name = "SCT_snn")
+        RunUMAP(dims = 1:30, reduction = "sct.pca", reduction.name = "sct.umap") 
+    
+        # add gene names to SCT assay
+        df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$SCT@data)), so[[i]]@assays$RNA@meta.features)
+        rownames(so[[i]]@assays$SCT@data) <- df$unique_name
+        rownames(so[[i]]@assays$SCT@counts) <- df$unique_name
+        
+    }
+    
+    else if (ini$normalisation_method == "SCTransformv2"){
     
     so[[i]] <- SCTransform(so[[i]],
                            method = "glmGamPoi", #added to increase efficiency
@@ -115,269 +195,222 @@ for (i in 1:length(so)){
                            new.assay.name = "SCTv2") %>% # using SCTransform v2
         RunPCA(reduction.name = "sctv2.pca") %>% 
         FindNeighbors(dims = 1:30, reduction = "sctv2.pca") %>%
-        RunUMAP(dims = 1:30, reduction = "sctv2.pca", reduction.name = "sctv2.umap") %>% 
-        FindClusters(graph.name = "SCTv2_snn")
+        RunUMAP(dims = 1:30, reduction = "sctv2.pca", reduction.name = "sctv2.umap") 
+    
+      # add gene names to SCTv2 assay
+        df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$SCTv2@data)), so[[i]]@assays$RNA@meta.features)
+        rownames(so[[i]]@assays$SCTv2@data) <- df$unique_name
+        rownames(so[[i]]@assays$SCTv2@counts) <- df$unique_name
+        
+   }
+    
+    else if (ini$normalisation_method == "LogNormalise"){
+        so[[i]] <- so[[i]] %>% 
+           NormalizeData() %>%
+           FindVariableFeatures() %>% 
+           ScaleData() %>%
+           RunPCA(reduction.name = "lognorm.pca")%>%
+           FindNeighbors(dims = 1:30, reduction = "lognorm.pca") %>%
+           RunUMAP(dims = 1:30, reduction = "lognorm.pca", reduction.name = "lognorm.umap") 
+        
+    }
+    
+  
 }
 
  
 
 ```
-Convert rownames of RNA and SCT assay data slots to unique names
 
 
-```{r, include=FALSE}
-
-for (i in 1:length(so)){
-  
-    #add gene names to SCT assay
-  df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$SCT@data)), so[[i]]@assays$RNA@meta.features)
-  rownames(so[[i]]@assays$SCT@data) <- df$unique_name
-  rownames(so[[i]]@assays$SCT@counts) <- df$unique_name
-
-  # add gene names to SCTv2 assay
-  df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$SCTv2@data)), so[[i]]@assays$RNA@meta.features)
-  rownames(so[[i]]@assays$SCTv2@data) <- df$unique_name
-  rownames(so[[i]]@assays$SCTv2@counts) <- df$unique_name
-
-}
-
-```
-
-
-### Get the top 10 variable genes and label with gene names
-
-```{r, include = FALSE}
-top10_sct <- list()
-top10_sctv2 <- list()
-
-
-for (i in 1:length(so)){
-
-  top10_sct[[i]] <- data.frame("ensembl_gene_id" = VariableFeatures(so[[i]], assay = "SCT")[1:10]) %>% 
-    left_join(so_test[[i]]@assays$RNA@meta.features)
-  
-    top10_sctv2[[i]] <- data.frame("ensembl_gene_id" = VariableFeatures(so[[i]], assay = "SCTv2")[1:10]) %>% 
-    left_join(so_test[[i]]@assays$RNA@meta.features)
-  
-  
-  
-}
-
-top10_sct
-top10_sctv2
-```
-
-Plot the variable features following SCTransform and SCTransform v2
-
-
-```{r, fig.width=12, message=FALSE}
-plot_list <- list()
-
-for (i in 1:length(so)){
-    
-    
-    p1 <- VariableFeaturePlot(so[[i]], pt.size = 0.2, assay = "SCT")+
-      scale_colour_viridis_d(begin = 0, end = 0.75)
-    
-    p2 <- LabelPoints(plot = p1, points = top10_sct[[i]]$ensembl_gene_id, 
-                      labels = top10_sct[[i]]$unique_name, 
-                      repel = TRUE, xnudge = 0, ynudge = 0)+
-      ggtitle("SCT")
-    
-    p3 <- VariableFeaturePlot(so[[i]], pt.size = 0.2, assay = "SCTv2")+
-      scale_colour_viridis_d(begin = 0, end = 0.75)
-    
-    p4 <- LabelPoints(plot = p1, points = top10_sctv2[[i]]$ensembl_gene_id, 
-                      labels = top10_sctv2[[i]]$unique_name, 
-                      repel = TRUE, xnudge = 0, ynudge = 0)+
-      ggtitle("SCTv2")
-    
-    
-    p5 <- plot_grid(p2, p4, nrow = 1)
-    title <- ggdraw() + draw_label(so[[i]]@project.name, fontface='bold', size = 16)
-    plot_list[[i]] <- plot_grid(title, p5, ncol=1, rel_heights=c(0.1, 1))
-
-
-}
-
-title <- ggdraw() + draw_label("Variable genes following SCT/SCTv2", fontface='bold', size = 24)
-p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 1)
-p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
-
-p
-
-
-```
-
-Plot ElbowPlot
-
-```{r, fig.width=10, message=FALSE}
-plot_list <- list()
-
-for (i in 1:length(so)){
-    
-    plot_list[[i]] <- ElbowPlot(so[[i]], reduction = "sct.pca", ndims = 50)+
-      ggtitle(so[[i]]@project.name)
-  
-}
-
-title <- ggdraw() + draw_label("Elbow Plot following SCT", fontface='bold', size = 24)
-p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
-p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
-
-p
-
-
-```
-
-
-Plot UMAP with clustering
-
-```{r, fig.width=10, message=FALSE}
-plot_list <- list()
-
-for (i in 1:length(so)){
-    
-    plot_list[[i]] <- DimPlot(so[[i]], reduction = "sct.umap")+
-      ggtitle(so[[i]]@project.name)
-  
-}
-
-title <- ggdraw() + draw_label("Clustering following SCT", fontface='bold', size = 24)
-p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
-p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
-
-p
-
-
-```
-
-
-
-
-
-
-
-Plot the top 10 variable genes on a Vln plot
+### Add multiple resolutions of clustering
 
 ```{r}
-#Create a list of project names
 
-project_names <- list()
+so <- lapply(so, FindClusters, resolution = seq(0.1, 1, 0.1))
 
-for (i in 1:length(so_test)){
-  project_names[[i]] <- so[[i]]@project.name
+
+```
+### Save the RDS objects
+
+```{r}
+dir.create ("RDS_objects.dir/clustered/", showWarnings = FALSE)
+dir.create (paste0("RDS_objects.dir/clustered/", ini$normalisation_method), showWarnings = FALSE)
+
+for(i in 1:length(so)){
+    
+    saveRDS(so[[i]], paste0("RDS_objects.dir/clustered/", ini$normalisation_method, "/", so[[i]]@project.name, "_filtered_clustered_SeuratObject.rds"))
+    
 }
 
 ```
 
 
-```{r, fig.width=12, fig.height=10}
 
+### Plot the variable features following normalisation
+
+
+```{r, fig.width=12, fig.height=18, message=FALSE}
 plot_list <- list()
 
-#str_replace(file_list[[i]], "_decontX_doublet_discard_filtered_SeuratObject.rds", "")
-
-for (i in 1:length(so_test)){
-  
-  plot_list[[i]] <- VlnPlot(so_test[[i]], features = top10[[i]]$unique_name[1:6]) 
-  
+for (i in 1:length(so)){
+    
+    
+    p1 <- VariableFeaturePlot(so[[i]], pt.size = 0.2)+
+      scale_colour_viridis_d(begin = 0, end = 0.75)
+    
+    plot_list[[i]] <- LabelPoints(plot = p1, points = VariableFeatures(so[[i]])[1:10], 
+                      #labels = top10[[i]]$unique_name, 
+                      repel = TRUE, xnudge = 0, ynudge = 0)+
+        ggtitle(so[[i]]@project.name)
+    
 }
 
-title <- ggdraw() + draw_label("Top six variable genes", fontface='bold', size = 24)
-p <- plot_grid(plotlist = plot_list, labels = project_names, label_size = 14, hjust = 0, vjust = 1, ncol = 1)
-p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
+title <- ggdraw() + draw_label(paste0(ini$normalisation_method, " variable features"), fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
 
 p
-
-```
-
-
-Up to here Wed 28th Feb
-
-
-
-
-
-
-
-
-
-
-
-
-From filter-achilles.Rmd
-
-Perform denoise on the filtered object, then recalculate the UMAP on the reduced number of PCs. 
-
-```{r, echo = FALSE}
-sce_decontX_doublet_discard_filtered_denoise <- list()
-df <- data.frame()
-
-for (i in 1:length(sce_decontX_doublet_discard_filtered)){
-    
-    sce_decontX_doublet_discard_filtered_denoise[[i]] <-
-        scran::denoisePCA(sce_decontX_doublet_discard_filtered[[i]],
-                          dec_filtered[[i]], 
-                          subset.row=hvg_filtered[[i]])
-    
-    sample <- project_title[[i]]
-    denoise_PCs <- ncol(reducedDim(sce_decontX_doublet_discard_filtered_denoise[[i]], "PCA"))
-    
-    df[i,1] <- sample
-    df[i, 2] <- denoise_PCs
-    
-    sce_decontX_doublet_discard_filtered_denoise[[i]] <- scater::runUMAP(sce_decontX_doublet_discard_filtered_denoise[[i]], 
-                                                                 dimred = 'PCA', 
-                                                                 pca = denoise_PCs,
-                                                                 external_neighbors=TRUE)
-    
-}
-    
-colnames(df) <- c("sample", "number of PCs")
-
-write.table (df, "Files/denoise_PCs.txt", row.names = FALSE, sep = "\t")
-
-df
-
-```
-
-Plot the UMAPs side by side, with and without denoise.
-
-```{r, fig.height = 12, message = FALSE}
-plot_list <- list()
-
-for (i in 1:length(sce_decontX_doublet_discard_filtered)){
-    
-    p1 <- plotReducedDim(sce_decontX_doublet_discard_filtered[[i]], dimred = "UMAP", colour_by = "sex")+
-        scale_colour_viridis_d(begin = 0, end = 0.75)+
-        ggtitle("Before denoise")+
-        theme(legend.position="none")
-    
-    p2 <- plotReducedDim(sce_decontX_doublet_discard_filtered_denoise[[i]], dimred = "UMAP", colour_by = "sex")+
-        scale_colour_viridis_d(begin = 0, end = 0.75)+
-        ggtitle("After denoise")+
-        theme(legend.position="none")
-
-        p3 <- plot_grid(p1, p2, nrow = 1)
-    title <- ggdraw() + draw_label(project_title[[i]], fontface='bold', size = 16)
-    plot_list[[i]] <- plot_grid(title, p3, ncol=1, rel_heights=c(0.1, 1))
-}
-
-
-#add an overall title and arrange the graphs on one page
-title <- ggdraw() + draw_label("Denoise PCA", fontface='bold', size = 24)
-p <- plot_grid(plotlist = plot_list, label_size = 24, ncol = 2)
-p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
-
-p
-    
 
 
 ```
 
 ```{r, include=FALSE}
 #save the plot
-ggsave("Filtered_Figures.dir/Denoise_UMAP.png", p, device = "png", width = 10, height = 14, bg = "white")
-ggsave("Filtered_Figures.dir/Denoise_UMAP.pdf", p, device = "pdf", width = 12, height = 24, bg = "white")
+dir.create(paste0("Clustering_Figures.dir/", ini$normalisation_method), showWarnings = FALSE)
+ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/HVG.", ini$file_format), p, device = ini$file_format, width = 10, height = 18, bg = "white")
+
+
 ```
+
+
+
+### ElbowPlot
+
+```{r, fig.width=10, fig.height = 18, message=FALSE}
+plot_list <- list()
+
+for (i in 1:length(so)){
+    
+    plot_list[[i]] <- ElbowPlot(so[[i]], reduction = pca_name, ndims = 50)+ggtitle(so[[i]]@project.name, )
+  
+}
+
+title <- ggdraw() + draw_label(paste0(ini$normalisation_method, " Elbow Plot"), fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+
+```
+
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/Elbow_plot.", ini$file_format), p, device = ini$file_format, width = 10, height = 18, bg = "white")
+
+
+```
+
+
+
+### Plot the clustree
+
+```{r, fig.width=12, fig.height=20}
+
+plot_list <- list()
+
+for (i in 1:length(so)){
+    
+    plot_list[[i]] <- clustree(so[[i]], prefix = res_prefix) + 
+        theme(legend.position="none")+
+        ggtitle(so[[i]]@project.name)
+    
+}
+
+title <- ggdraw() + draw_label(paste0(ini$normalisation_method, " Clustree Plot"), fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
+
+p
+
+
+
+```
+
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/Clustree_plot.", ini$file_format), p, device = ini$file_format, width = 12, height = 20, bg = "white")
+
+
+```
+
+### Plot UMAP with clustering
+
+```{r, fig.width=10, fig.height = 18,message=FALSE}
+plot_list <- list()
+
+for (i in 1:length(so)){
+    
+    # set chosen resolution (default = 0.5)
+    
+    so[[i]][["seurat_clusters"]] <- so[[i]][[paste0(res_prefix, ini$resolution)]]
+    
+    # plot UMAP
+    plot_list[[i]] <- DimPlot(so[[i]], reduction = umap_name, label = TRUE, repel = TRUE) +
+        theme(legend.position="none")+
+        ggtitle(so[[i]]@project.name)
+    
+}
+
+title <- ggdraw() + draw_label(paste0(ini$normalisation_method, " Clustering at resolution = ", ini$resolution), fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/UMAP_plot.", ini$file_format), p, device = ini$file_format, width = 12, height = 18, bg = "white")
+
+
+```
+
+Feature plot for mitochondrial content
+
+```{r, fig.width=10, fig.height = 18}
+
+plot_list <- list()
+
+for (i in 1:length(so)){
+    
+    plot_list[[i]]  <- FeaturePlot(so[[i]], features = "percent_mt", reduction = umap_name)+
+        scale_colour_gradientn(colours = viridis(256, option = "D"), name = "percent_mt", limits = c(0, 25))+
+        ggtitle(so[[i]]@project.name)
+
+}
+
+title <- ggdraw() + draw_label(paste0(ini$normalisation_method, " Percent MT genes on UMAP"), fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
+
+p
+
+
+```
+
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/UMAP_percent_mt.", ini$file_format), p, device = ini$file_format, width = 12, height = 18, bg = "white")
+
+
+```
+
+
+
