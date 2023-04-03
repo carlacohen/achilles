@@ -498,13 +498,13 @@ Add these metrics to the colData.
 ```{r, echo=FALSE}
 
 for (i in 1:length(sce_empty)){
-    QC_filters <- perCellQCFilters(sce_empty[[i]], 
+    QC_filters <- scuttle::perCellQCFilters(sce_empty[[i]], 
                       sum.field = "nCount_RNA", 
                       detected.field = "nFeature_RNA",
                       sub.fields = "percent_mt")
     colData(sce_empty[[i]]) <- cbind(colData(sce_empty[[i]]), QC_filters)
     
-    QC_filters <- perCellQCFilters(sce_decontX_doublet_filtered[[i]], 
+    QC_filters <- scuttle::perCellQCFilters(sce_decontX_doublet_filtered[[i]], 
                       sum.field = "nCount_RNA", 
                       detected.field = "nFeature_RNA",
                       sub.fields = "percent_mt")

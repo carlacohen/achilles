@@ -40,12 +40,13 @@ library(yaml)
 library(viridis)
 
 # Read in the yml file
-ini <- read_yaml("pipeline.yml")
+ini <- read_yaml("cluster_pipeline.yml")
 
 ```
 
-## Import the data
+## Import the data & Setup
 
+Decide whether to use samples with statistical filtering or fixed percent_mt
 Make a list of files
 Remove some samples due to them failing QC
 MSK1250-Ach-MB2
@@ -55,8 +56,9 @@ MSK1284 all samples
 ```{r}
 
 #make a list of sample files
-file_list <- list.files("RDS_objects.dir/filtered", pattern="discard_filtered_SeuratObject.rds")
-names(file_list) <- str_replace(file_list, "_decontX_doublet_discard_filtered_SeuratObject.rds", "")
+
+file_list <- list.files("RDS_objects.dir/filtered/", pattern=paste0(ini$object_filter, "_SeuratObject.rds"))
+names(file_list) <- str_replace(file_list, paste0("_decontX_doublet_", ini$object_filter, "_SeuratObject.rds"), "")
 
 cat ("File list before sample removal")
 cat ("\n")
@@ -64,19 +66,54 @@ names(file_list)
 
 
 # get the positions of unwanted files in the list
-positions <- match(ini$files_to_remove, names(file_list))
+## ? why are these files already removed? 
+# positions <- match(ini$files_to_remove, names(file_list))
 
 # remove certain files using those names
-file_list <- file_list[-c(positions)] 
+# file_list <- file_list[-c(positions)] 
 
 
-cat ("\n")
-cat ("File list after sample removal")
-cat ("\n")
-names(file_list)
+# cat ("\n")
+# cat ("File list after sample removal")
+# cat ("\n")
+# names(file_list)
 
 
 ```
+
+Record the settings used
+
+```{r}
+# make a new output folder for each run, with the date in the directory name
+# generate a readme file that shows the parameters used and files analysed
+
+date <- Sys.Date() %>% str_replace_all("-", "")
+directory <- paste0(date,"_","Clustering.dir")
+dir.create(directory, showWarnings = FALSE)
+
+sink(file = paste0(directory, "/README.txt"))
+cat("This is a description of the following run on ", date, "\n")
+cat("\n")
+cat("Run Location:\n")
+cat(getwd(), "\n")
+cat("\n")
+cat("This run analysed the following samples:\n")
+cat(names(file_list), sep = "\n")
+cat("\n")
+cat("Filtering method used:\n")
+cat(ini$object_filter, "\n")
+cat("\n")
+cat("Normalisation method used:\n")
+cat(ini$normalisation_method, "\n")
+cat("\n")
+cat("Clustering resolution used:\n")
+cat(ini$resolution)
+
+sink()
+
+```
+
+
 
 
 Read in RDS files after filtering
@@ -92,7 +129,8 @@ for (i in 1:length(file_list)){
     
     so[[i]] <- readRDS(paste0("RDS_objects.dir/filtered/", file_list[i]))
     #set the project name (should be done in filtering workflow)
-    so[[i]]@project.name <- str_replace(file_list[[i]], "_decontX_doublet_discard_filtered_SeuratObject.rds", "")
+    so[[i]]@project.name <- str_replace(file_list[[i]], paste0("_decontX_doublet_", ini$object_filter, "_SeuratObject.rds"), "")
+    
 }
 
 ```
@@ -180,10 +218,7 @@ for (i in 1:length(so)){
         FindNeighbors(dims = 1:ini$n_dims, reduction = "sct.pca") %>%
         RunUMAP(dims = 1:ini$n_dims, reduction = "sct.pca", reduction.name = "sct.umap") 
     
-        # add gene names to SCT assay
-        df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$SCT@data)), so[[i]]@assays$RNA@meta.features)
-        rownames(so[[i]]@assays$SCT@data) <- df$unique_name
-        rownames(so[[i]]@assays$SCT@counts) <- df$unique_name
+        # gene names in SCT assay will be the same as RNA assay
         
     }
     
@@ -198,10 +233,7 @@ for (i in 1:length(so)){
         FindNeighbors(dims = 1:ini$n_dims, reduction = "sctv2.pca") %>%
         RunUMAP(dims = 1:ini$n_dims, reduction = "sctv2.pca", reduction.name = "sctv2.umap") 
     
-      # add gene names to SCTv2 assay
-        df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$SCTv2@data)), so[[i]]@assays$RNA@meta.features)
-        rownames(so[[i]]@assays$SCTv2@data) <- df$unique_name
-        rownames(so[[i]]@assays$SCTv2@counts) <- df$unique_name
+      # # gene names in SCTv2 assay will be the same as RNA assay
         
    }
     
@@ -233,15 +265,18 @@ so <- lapply(so, FindClusters, resolution = seq(0.1, 1, 0.1))
 
 
 ```
+
+
 ### Save the RDS objects
 
-```{r}
-dir.create ("RDS_objects.dir/clustered/", showWarnings = FALSE)
-dir.create (paste0("RDS_objects.dir/clustered/", ini$normalisation_method), showWarnings = FALSE)
+```{r, warning=FALSE}
+dir.create (paste0(directory, "/RDS_objects.dir/"))
+dir.create (paste0(directory, "/RDS_objects.dir/clustered/"))
+dir.create (paste0(directory, "/RDS_objects.dir/clustered/", ini$normalisation_method), showWarnings = FALSE)
 
 for(i in 1:length(so)){
     
-    saveRDS(so[[i]], paste0("RDS_objects.dir/clustered/", ini$normalisation_method, "/", so[[i]]@project.name, "_filtered_clustered_SeuratObject.rds"))
+    saveRDS(so[[i]], paste0(directory, "/RDS_objects.dir/clustered/", ini$normalisation_method, "/", so[[i]]@project.name, "_filtered_clustered_SeuratObject.rds"))
     
 }
 
@@ -278,8 +313,9 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-dir.create(paste0("Clustering_Figures.dir/", ini$normalisation_method), showWarnings = FALSE)
-ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/HVG.", ini$file_format), p, device = ini$file_format, width = 10, height = 18, bg = "white")
+dir.create(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method), showWarnings = FALSE)
+ggsave(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method, "/HVG.", ini$file_format), 
+       p, device = ini$file_format, width = 10, height = 18, bg = "white")
 
 
 ```
@@ -309,7 +345,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/Elbow_plot.", ini$file_format), p, device = ini$file_format, width = 10, height = 18, bg = "white")
+ggsave(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method, "/Elbow_plot.", ini$file_format), 
+       p, device = ini$file_format, width = 10, height = 18, bg = "white")
 
 
 ```
@@ -342,7 +379,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/Clustree_plot.", ini$file_format), p, device = ini$file_format, width = 12, height = 20, bg = "white")
+ggsave(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method, "/Clustree_plot.", ini$file_format), 
+       p, device = ini$file_format, width = 12, height = 20, bg = "white")
 
 
 ```
@@ -376,7 +414,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/UMAP_plot.", ini$file_format), p, device = ini$file_format, width = 12, height = 18, bg = "white")
+ggsave(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method, "/UMAP_plot.", ini$file_format), 
+       p, device = ini$file_format, width = 12, height = 18, bg = "white")
 
 
 ```
@@ -407,7 +446,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-ggsave(paste0("Clustering_Figures.dir/", ini$normalisation_method, "/UMAP_percent_mt.", ini$file_format), p, device = ini$file_format, width = 12, height = 18, bg = "white")
+ggsave(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method, "/UMAP_percent_mt.", ini$file_format), 
+       p, device = ini$file_format, width = 12, height = 18, bg = "white")
 
 
 ```
