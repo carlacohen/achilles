@@ -1,0 +1,31 @@
+##########################
+#
+# configuration file for Integration.Rmd
+#
+##########################
+
+# Specify output file type
+# can be "png", "pdf", or others compatible with ggsave. 
+file_type: "png"
+
+# Filtering: specify which object to use
+# decontX_doublet_discard_filtered_SeuratObject.rds: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed, high mitochondrial reads removed 
+# decontX_doublet_low_filtered_SeuratObject.rds: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed 
+# decontX_doublet_discard_5pctmt_SeuratObject.rds: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed, > 5 percent mt removed
+
+object_filter: discard_5pctmt
+
+# Specify normalisation method
+# Choose "SCTransform", "SCTransformv2", "logNormalise"
+
+normalisation_method: SCTransform
+
+# Specify clustering analysis data
+
+cluster_date: 20230413
+
+# Specify clusering resolution
+resolution: 0.2
+
+# Number of dimensions to use
+n_dims: 30

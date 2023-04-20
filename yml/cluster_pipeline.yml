@@ -1,0 +1,34 @@
+#####################################################
+#                                                   # 
+# configuration file for pipeline seurat cluster-3  #
+#                                                   #
+#####################################################
+
+# Filtering: specify which object to use
+# decontX_doublet_discard_filtered_SeuratObject.rds: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed, high mitochondrial reads removed 
+# decontX_doublet_low_filtered_SeuratObject.rds: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed 
+# decontX_doublet_discard_5pctmt_SeuratObject.rds: empty droplets removed, ambient RNA and doublets removed, low nCount and nFeature removed, > 5 percent mt removed
+
+object_filter: discard_5pctmt
+
+
+# Specify any files to remove that have failed QC
+
+files_to_remove: ["MSK1250-Ach-MB2", "MSK1284-Ach-Enth"]
+
+# Specify normalisation method
+# Choose "SCTransform", "SCTransformv2", "logNormalise"
+
+normalisation_method: logNormalise
+
+# Number of dimensions to use
+n_dims: 30
+
+# File format
+# Choose "png", "pdf", "svg"
+
+file_format: png
+
+# Clustering resolution 
+resolution: 0.3
+

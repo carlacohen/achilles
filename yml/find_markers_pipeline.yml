@@ -1,0 +1,27 @@
+##########################
+#
+# configuration file for Find_markers.Rmd
+#
+##########################
+
+# Specify output file type
+# can be "png", "pdf", or others compatible with ggsave. 
+file_type: "png"
+
+# Specify normalisation method
+# Choose "SCTransform", "SCTransformv2", "logNormalise"
+
+normalisation_method: SCTransform
+
+# Specify clustering analysis data
+
+cluster_date: 20230413
+
+# Specify clusering resolution
+
+resolution: 0.3
+
+# Parameters for FindAllMarkers
+only_pos: FALSE
+min_pct: 0.25
+logfc_threshold: 0.25

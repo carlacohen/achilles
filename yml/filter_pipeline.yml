@@ -1,0 +1,18 @@
+##########################
+#
+# configuration file for pipeline_filter-2
+#
+##########################
+
+# Specify memory for running pipeline tasks
+mem: 100G
+
+# Specify files to remove due to failing QC
+files_to_remove: ["MSK1284-Ach-Enth", "MSK1284-Ach-MB", "MSK1284-Ach-MTJ", "MSK1250-Ach-MB2"]
+
+# Specify output file type
+# can be "png", "pdf", or others compatible with ggsave. 
+file_type: "png"
+
+# Specify a cut off for percent_mt
+percent_mt_filter: 5
