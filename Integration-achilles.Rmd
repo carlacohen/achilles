@@ -1,0 +1,767 @@
+---
+title: "Achilles Integration"
+author: "C.Paul/ Carla Cohen"
+date: "08/03/2023"
+output: html_document
+---
+
+## Set up
+
+Set up and read in the yml file. 
+
+```{r setup, load packages, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(tidyverse)
+library(Matrix)
+library(ggplot2)
+library(scales)
+library(RColorBrewer)
+library(harmony)
+library(cowplot)
+library(clustree)
+library(sctransform)
+library(scuttle)
+library(yaml)
+
+#need to update yml file as appropriate
+ini <- read_yaml("integration_pipeline.yml")
+
+```
+
+#### Read in filtered Seurat objects
+
+
+```{r, read in objects}
+
+#make a list of sample files
+
+file_list <- list.files("RDS_objects.dir/filtered/", pattern=paste0(ini$object_filter, "_SeuratObject.rds"))
+names(file_list) <- str_replace(file_list, paste0("_decontX_doublet_", ini$object_filter, "_SeuratObject.rds"), "")
+
+
+#Make a new list for the seurat objects
+so <- list()
+
+# generate a list of Seurat objects
+for (i in 1:length(file_list)){
+    
+    so[[i]] <- readRDS(paste0("RDS_objects.dir/filtered/", file_list[i]))
+    #set the project name (should be done in filtering workflow)
+    so[[i]]@project.name <- str_replace(file_list[[i]], paste0("_decontX_doublet_", ini$object_filter, "_SeuratObject.rds"), "")
+    
+}
+
+
+```
+
+#### Record the parameters used
+
+```{r}
+# make a new output folder for each run, with the date in the directory name
+# generate a readme file that shows the parameters used and files analysed
+
+date <- Sys.Date() %>% str_replace_all("-", "")
+directory <- paste0(date,"_","Integration.dir")
+dir.create(directory, showWarnings = FALSE)
+
+sink(file = paste0(directory, "/README.txt"), append = TRUE)
+cat("This is a description of the following run on ", date, "\n")
+cat("\n")
+cat("Run Location:\n")
+cat(getwd(), "\n")
+cat("\n")
+cat("This run analysed the following samples:\n")
+cat(names(file_list), sep = "\n")
+cat("\n")
+cat("Filtering method used:\n")
+cat(ini$object_filter, "\n")
+cat("\n")
+cat("Normalisation method used:\n")
+cat(ini$normalisation_method, "\n")
+cat("\n")
+cat("Number of PCs used:\n")
+cat(ini$n_dims, "\n")
+cat("\n")
+cat("Clustering resolution used:\n")
+cat(ini$resolution)
+
+sink()
+
+```
+
+
+#### Convert rownames of RNA assay data & counts slots to unique names
+
+
+```{r, include=FALSE}
+
+for (i in 1:length(so)){
+  
+  # add gene names to RNA assay
+  df <- left_join(data.frame("ensembl_gene_id" = rownames(so[[i]]@assays$RNA@data)), so[[i]]@assays$RNA@meta.features)
+  rownames(so[[i]]@assays$RNA@data) <- df$unique_name
+  rownames(so[[i]]@assays$RNA@counts) <- df$unique_name
+
+}
+
+```
+
+#### Fix the metadata for MSK1250-Ach-MB1
+MSK1250-Ach-MB1" has no microanatomical site listed
+```{r}
+for (i in 1:length(so)){
+    print(so[[i]]@project.name)
+    print(head(so[[i]][["microanatomical_site"]]))
+}
+
+
+#"MSK1250-Ach-MB1" has no microanatomical site listed
+so[[6]][["microanatomical_site"]] <- "MB"
+
+```
+
+
+#### Parameters
+Extract some names that depend on the normalisation method performed
+
+```{r}
+
+if (ini$normalisation_method == "SCTransform"){
+        
+        # save the reduction names
+        pca_name <- "sct.pca"
+        umap_name <- "sct.umap"
+        
+        # save the resolution prefix
+        res_prefix <- "SCT_snn_res."
+        
+    } else if (ini$normalisation_method == "SCTransformv2"){
+    
+    # save the reduction names
+     pca_name <- "sctv2.pca"
+     umap_name <- "sctv2.umap"
+     
+     # save the resolution prefix
+     res_prefix <- "SCTv2_snn_res."
+    
+    } else if (ini$normalisation_method == "LogNormalise"){
+    
+     # save the reduction names
+     pca_name <- "lognorm.pca"
+     umap_name <- "lognorm.umap"
+     
+     # save the resolution prefix
+     res_prefix <- "RNA_snn_res."
+        
+}
+    
+print(ini$normalisation_method) 
+print(pca_name)
+print(umap_name)
+print(res_prefix)
+
+```
+
+
+## Merging
+Merge the Seurat objects
+
+```{r merge all datasets}
+
+#perform the merge of so1 with all other sos in the list and add cell IDs
+so.merge <- merge(so[[1]], y = so[-c(1)], add.cell.ids = names(file_list))
+
+```
+
+#### Perform Normalisation on the merged object
+
+Default method is SCTransform, can also update to logNormalise or SCTransform v2 using the yml file. 
+Perform the downstream steps with default parameters and using 30 PCs (this will be optimised later)
+
+
+
+```{r, message=FALSE, warning = FALSE}
+
+if (ini$normalisation_method == "SCTransform"){
+        
+        so.merge <- SCTransform(so.merge,
+                           method = "glmGamPoi", #added to increase efficiency
+                           vars.to.regress = "percent_mt", 
+                           verbose = FALSE) %>% 
+        RunPCA(reduction.name = "sct.pca") %>% 
+        FindNeighbors(dims = 1:ini$n_dims, reduction = "sct.pca") %>%
+        RunUMAP(dims = 1:ini$n_dims, reduction = "sct.pca", reduction.name = "sct.umap") 
+    
+        # gene names in SCT assay will be the same as RNA assay
+        
+} else if (ini$normalisation_method == "SCTransformv2"){
+    
+    so.merge <- SCTransform(so.merge,
+                           method = "glmGamPoi", #added to increase efficiency
+                           vars.to.regress = "percent_mt", 
+                           vst.flavor = "v2", 
+                           new.assay.name = "SCTv2", # using SCTransform v2
+                           verbose = FALSE) %>% 
+        RunPCA(reduction.name = "sctv2.pca") %>% 
+        FindNeighbors(dims = 1:ini$n_dims, reduction = "sctv2.pca") %>%
+        RunUMAP(dims = 1:ini$n_dims, reduction = "sctv2.pca", reduction.name = "sctv2.umap") 
+    
+      # # gene names in SCTv2 assay will be the same as RNA assay
+        
+} else if (ini$normalisation_method == "LogNormalise"){
+        so.merge <- so.merge %>% 
+           NormalizeData() %>%
+           FindVariableFeatures() %>% 
+           ScaleData() %>%
+           RunPCA(reduction.name = "lognorm.pca")%>%
+           FindNeighbors(dims = 1:ini$n_dims, reduction = "lognorm.pca") %>%
+           RunUMAP(dims = 1:ini$n_dims, reduction = "lognorm.pca", reduction.name = "lognorm.umap") 
+        
+    }
+    
+  
+```
+#### QC plots on merged object
+
+Elbow Plot
+
+```{r}
+p <- ElbowPlot(so.merge, reduction = pca_name, ndims = 50)
+p
+```
+
+
+
+Check distribution by metadata elements on PCA
+
+```{r, by donor, fig.height=10, fig.width=10}
+plot_list <- list()
+
+#By sample
+plot_list[[1]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "orig.ident")+
+    ggtitle("sample")
+#By patient
+plot_list[[2]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "patient")+
+    ggtitle ("patient")
+#By age
+plot_list[[3]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "age")+
+    ggtitle ("age")
+#By sex
+plot_list[[4]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "sex")+
+    ggtitle ("sex")
+#By microanatomy
+plot_list[[5]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "microanatomical_site")+
+    ggtitle("microanatomical site")
+#By surgical procedure
+#plot_list[[6]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "surgical_procedure")
+#By disease status
+#plot_list[[7]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "disease_status")
+#By anatomical site
+#plot_list[[8]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "anatomical_site")
+#By time to freezing
+#plot_list[[9]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "time_to_freezing")
+#By sequencing date
+#plot_list[[10]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "sequencing_date")
+#By ethnicity
+#plot_list[[11]] <- DimPlot(so.merge, reduction = pca_name, pt.size = .1, group.by = "ethnicity")
+
+title <- ggdraw() + draw_label("Merged data metafeatures on PCA plot", fontface='bold', size = 16)
+p <- plot_grid(plotlist = plot_list, ncol = 2) 
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+
+p
+```
+
+
+```{r, include=FALSE}
+#save the plot
+dir.create(paste0(directory, "/Integration_Figures.dir/"))
+dir.create(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method))
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/PCA_merged_metafeatures.", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 10, bg = "white")
+
+
+```
+
+
+Check distribution by metadata elements on Violin plot
+
+```{r, fig.height=12, fig.width=10}
+plot_list <- list()
+
+#By sample
+plot_list[[1]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "orig.ident") +
+    ggtitle ("sample")
+#By patient
+plot_list[[2]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "patient")+
+    ggtitle("patient")
+#By age
+plot_list[[3]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "age")+
+    ggtitle ("age")
+#By sex
+plot_list[[4]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "sex")+
+    ggtitle("sex")
+#By microanatomy
+plot_list[[5]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "microanatomical_site")+
+    ggtitle("microanatomical site")
+#By surgical procedure
+#plot_list[[6]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "surgical_procedure")
+#By disease status
+#plot_list[[7]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "disease_status")
+#By anatomical site
+#plot_list[[8]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "anatomical_site")
+#By time to freezing
+#plot_list[[9]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "time_to_freezing")
+#By sequencing date
+#plot_list[[10]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "sequencing_date")
+#By ethnicity
+#plot_list[[11]] <- VlnPlot(so.merge, pt.size = .1, features = "PC_1", group.by = "ethnicity")
+
+
+title <- ggdraw() + draw_label("Metafeatures on Violin plot", fontface='bold', size = 16)
+p <- plot_grid(plotlist = plot_list, ncol = 2) 
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+
+p
+
+
+```
+
+```{r, include=FALSE}
+#save the plot
+
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/VlnPlot_merged_metafeatures.", ini$file_type), 
+       p, device = ini$file_format, width = 12, height = 10, bg = "white")
+
+
+```
+
+
+Visualise contribution of each sample on UMAP
+
+```{r}
+p <- DimPlot(so.merge, reduction = umap_name, pt.size = .1, group.by = "orig.ident") +
+    ggtitle("Samples on merged UMAP")
+
+p
+```
+
+```{r}
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/UMAP_merged_sample.", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 10, bg = "white")
+
+```
+
+
+
+
+
+## Integration using Harmony
+
+Perform harmony integration
+
+```{r}
+so.harmony <- RunHarmony(so.merge, reduction = pca_name, group.by.vars = "orig.ident", plot_convergence = TRUE, dims.use = 1:30)
+```
+
+Run UMAP, Find Neighbours and Find Clusters on the integrated object. 
+Calculate clustering for a range of resolutsions from 0.1 to 1. 
+
+```{r}
+so.harmony <- so.harmony %>% 
+    RunUMAP(reduction = "harmony", dims = 1:ini$n_dims, reduction.name = "harmony.umap") %>%
+    FindNeighbors(reduction = "harmony", dims = 1:ini$n_dims) %>% 
+    FindClusters(resolution = seq(0.1, 1, 0.1))
+
+```
+
+#### QC to check how well the integration has worked
+
+Compare PCA plot from the merged vs integrated data
+
+```{r, fig.width = 14, fig.height=6}
+
+p1 <- DimPlot(so.harmony, reduction = pca_name, group.by = "orig.ident") + ggtitle ("PCA plot merged")
+p2 <- DimPlot(so.harmony, reduction = "harmony", group.by = "orig.ident") + ggtitle ("PCA plot integrated")
+
+p <- plot_grid(p1,p2, nrow = 1)
+p
+```
+
+```{r}
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/PCA_merged_vs_integrated.", ini$file_type), 
+       p, device = ini$file_format, width = 14, height = 6, bg = "white")
+```
+
+
+Compare Elbow plot from the merged vs integrated data
+
+```{r}
+
+p1 <- ElbowPlot(so.harmony, ndims = 50, reduction = pca_name) + ggtitle ("Elbow plot merged")
+p2 <- ElbowPlot(so.harmony, ndims = 50, reduction = "harmony") + ggtitle ("Elbow plot integrated")
+p <- plot_grid(p1,p2)
+p
+```
+
+```{r}
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/Elbowplot_merged_vs_integrated.", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 6, bg = "white")
+```
+
+Which genes are driving each PC?
+
+```{r, fig.width=10, fig.height=10}
+p <- DimHeatmap(so.harmony, dims = 1:10, cells = 500, balanced = TRUE, reduction = pca_name)
+p
+```
+
+```{r}
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/PCA_DimHeatmap.", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 10, bg = "white")
+```
+
+
+Plot the clustree to determine the most appropriate resolution to use
+
+```{r, fig.height= 10, fig.width=10}
+
+p <- clustree(so.harmony, prefix = res_prefix) + 
+        ggtitle("Clustree")
+    
+p
+
+```
+
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/Clustree_plot.", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 10, bg = "white")
+
+
+```
+
+Plot UMAPs at multiple clustering resolutions
+
+```{r, fig.width=10, fig.height=16}
+
+resolutionList <- grep("_snn_res", colnames(so.harmony@meta.data), value = TRUE)
+plot_list <- list()
+
+for (resolution in resolutionList){
+      plot_list [[resolution]] <- DimPlot(object = so.harmony, label = TRUE, reduction = "harmony.umap", group.by = resolution)+
+          theme(legend.position="none")
+      }
+
+title <- ggdraw() + draw_label("UMAPs of clustering resolutions 0.1-1", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, ncol = 3) 
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+
+p
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/UMAP_compare_resolutions.", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 16, bg = "white")
+
+
+```
+
+Select a resolution and set seurat clusters to that resolution 
+
+```{r} 
+
+so.harmony[["seurat_clusters"]] <- so.harmony[[paste0(res_prefix, ini$resolution)]]
+Idents(so.harmony) <- so.harmony[[paste0(res_prefix, ini$resolution)]]
+
+```
+
+#### Cell cycle
+
+Look at cell cycle markers using CellCycleScoring
+
+First calculate the phase for each cell, using an inbuilt database (in Seurat) of known cell cycle marker genes. 
+
+```{r}
+
+#Run CellCycleScoring algorithm, results will appear in the metadata 
+so.harmony <- CellCycleScoring(so.harmony, s.features = cc.genes$s.genes, g2m.features = cc.genes$g2m.genes)
+
+# view cell cycle scores and phase assignments
+head(so.harmony[[]])
+
+```
+
+Visualise the output of cell cycle markers
+
+```{r, fig.width=16, fig.height=10}
+# Visualize the distribution of cell cycle markers 
+p1 <- RidgePlot(so.harmony, features = c("PCNA", "TOP2A", "MCM6", "MKI67"), group.by = "Phase", ncol = 4)
+title <- ggdraw() + draw_label("Expression of cell cycle marker genes", fontface='bold', size = 16)
+
+
+# Visualise cell cycle assignment on PCA
+p2 <- DimPlot(so.harmony, reduction = "sct.pca", group.by = "Phase")+
+    ggtitle("Phase mapped on PCA")
+
+# Visualise cell cycle assignment on UMAP
+p3 <- DimPlot(so.harmony, reduction = "harmony.umap", group.by = "Phase", pt.size = 0.1)+
+    ggtitle("Phase mapped on UMAP")
+
+p4 <- plot_grid(p2, p3)
+
+p <- plot_grid(title, p1, p4, nrow = 3, rel_heights=c(0.1, 0.6, 1))
+
+p
+```
+Cell cycle could be regressed out in later steps if required. 
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/Cell_cycle_metrics.", ini$file_type), 
+       p, device = ini$file_type, width = 16, height = 10, bg = "white")
+
+
+```
+
+## Save objects 
+Save merged & integrated Seurat objects
+```{r}
+dir.create(paste0(directory, "/RDS_objects.dir/"))
+dir.create(paste0(directory, "/RDS_objects.dir/", ini$normalisation_method, "/"))
+
+saveRDS(so.merge, paste0(directory, "/RDS_objects.dir/", ini$normalisation_method, "/Achilles_merge_SeuratObject.rds"))
+saveRDS(so.harmony, paste0(directory, "/RDS_objects.dir/", ini$normalisation_method, "/Achilles_harmony_SeuratObject.rds"))
+
+```
+
+
+## Integration visualisation
+Visualization of merged and integrated data via UMAP split by sample
+
+```{r, fig.width = 12}
+p1 <- DimPlot(so.merge, reduction = umap_name, pt.size = .1, group.by = "orig.ident") +
+    ggtitle("Merged")
+p2 <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "orig.ident")+ 
+    ggtitle ("Harmony Integration")
+p <- plot_grid (p1, p2)
+p
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/UMAP_merged_vs_harmony.", ini$file_type), 
+       p, device = ini$file_format, width = 14, height = 6, bg = "white")
+
+
+```
+
+Visualization of integrated data via UMAP at chosen resolution
+
+```{r, fig.height=6, fig.width=6}
+p <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1)+ 
+    ggtitle (paste0("Harmony Integration Clustering at resolution = ", ini$resolution))
+p
+
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, 
+              "/UMAP_harmony_clustering_res_", ini$resolution, ".", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 10, bg = "white")
+
+
+```
+
+
+
+UMAP of integrated data by sample with each sample on a separate plot
+
+```{r, fig.width=14}
+
+p <- DimPlot(so.harmony, reduction = "harmony.umap", split.by = "orig.ident", ncol = 5)
+
+p
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/UMAP_harmony_by_sample.", ini$file_type), 
+       p, device = ini$file_format, width = 14, height = 6, bg = "white")
+
+
+```
+
+Check distribution by metadata elements on UMAP following integration
+
+```{r, by donor, fig.height=10, fig.width=10}
+plot_list <- list()
+
+#By sample
+plot_list[[1]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "orig.ident")+
+    ggtitle("sample")
+#By patient
+plot_list[[2]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "patient")+
+    ggtitle ("patient")
+#By age
+plot_list[[3]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "age")+
+    ggtitle ("age")
+#By sex
+plot_list[[4]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "sex")+
+    ggtitle ("sex")
+#By microanatomy
+plot_list[[5]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "microanatomical_site")+
+    ggtitle("microanatomical site")
+#By surgical procedure
+#plot_list[[6]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "surgical_procedure")
+#By disease status
+#plot_list[[7]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "disease_status")
+#By anatomical site
+#plot_list[[8]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "anatomical_site")
+#By time to freezing
+#plot_list[[9]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "time_to_freezing")
+#By sequencing date
+#plot_list[[10]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "sequencing_date")
+#By ethnicity
+#plot_list[[11]] <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, group.by = "ethnicity")
+
+title <- ggdraw() + draw_label("Metafeatures on UMAP after harmony integration", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, ncol = 2) 
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+
+p
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/UMAP_harmony_metafeatures.", ini$file_type), 
+       p, device = ini$file_format, width = 10, height = 10, bg = "white")
+
+
+```
+
+Plot metafeatures on Vln plot of harmony principal component
+
+```{r, fig.height=10, fig.width=12}
+plot_list <- list()
+
+#By sample
+plot_list[[1]] <- VlnPlot(object = so.harmony, features = "harmony_1", group.by = "orig.ident", pt.size = .1) +
+    ggtitle ("sample")
+#By patient
+plot_list[[2]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "patient")+
+    ggtitle("patient")
+#By age
+plot_list[[3]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "age")+
+    ggtitle ("age")
+#By sex
+plot_list[[4]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "sex")+
+    ggtitle("sex")
+#By microanatomy
+plot_list[[5]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "microanatomical_site")+
+    ggtitle("microanatomical site")
+#By surgical procedure
+#plot_list[[6]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "surgical_procedure")
+#By disease status
+#plot_list[[7]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "disease_status")
+#By anatomical site
+#plot_list[[8]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "anatomical_site")
+#By time to freezing
+#plot_list[[9]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "time_to_freezing")
+#By sequencing date
+#plot_list[[10]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "sequencing_date")
+#By ethnicity
+#plot_list[[11]] <- VlnPlot(so.harmony, pt.size = .1, features = "harmony_1", group.by = "ethnicity")
+
+
+title <- ggdraw() + draw_label("Metafeatures on Violin plot after Harmony integration", fontface='bold', size = 16)
+p <- plot_grid(plotlist = plot_list, ncol = 2) 
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+
+p
+
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/VlnPlot_harmony_metafeatures.", ini$file_type), 
+       p, device = ini$file_format, width = 12, height = 10, bg = "white")
+
+
+```
+
+
+Plot UMAP of microanatomical site on separate plots
+
+
+```{r, fig.width = 10, fig.height = 10}
+
+p <- DimPlot(so.harmony, reduction = "harmony.umap", pt.size = .1, split.by = "microanatomical_site", ncol = 2)+
+    ggtitle("microanatomical site")
+p
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/UMAP_harmony_by_microanatomy.", ini$file_type), 
+       p, device = ini$file_type, width = 10, height = 10, bg = "white")
+
+
+```
+
+Plot QC metrics on VlnPlot
+
+```{r, fig.height=6, fig.width=16}
+p1<- VlnPlot(so.harmony, features = "nFeature_RNA")
+p2<- VlnPlot(so.harmony, features = "nCount_RNA")
+p3<- VlnPlot(so.harmony, features = "percent_mt")
+p <- plot_grid(p1, p2, p3, nrow = 1)
+p
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/VlnPlot_harmony_QC_metrics.", ini$file_type), 
+       p, device = ini$file_type, width = 10, height = 10, bg = "white")
+
+
+```
+
+Plot QC metrics on UMAP
+
+```{r, fig.height=6, fig.width=16}
+p1<- FeaturePlot(so.harmony, features = "nFeature_RNA")
+p2<- FeaturePlot(so.harmony, features = "nCount_RNA")
+p3<- FeaturePlot(so.harmony, features = "percent_mt")
+p <- plot_grid(p1, p2, p3, nrow = 1)
+p
+
+```
+
+```{r, include=FALSE}
+#save the plot
+ggsave(paste0(directory, "/Integration_Figures.dir/", ini$normalisation_method, "/UMAP_harmony_QC_metrics.", ini$file_type), 
+       p, device = ini$file_type, width = 10, height = 10, bg = "white")
+
+
+```
+
+
+

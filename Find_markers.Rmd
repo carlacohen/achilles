@@ -1,0 +1,542 @@
+---
+title: "Find_markers"
+author: "Carla Cohen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Script to find markers on clustered individual samples. 
+Follows Cluster.Rmd.
+Based on work by Claudia Paul and Adam Cribbs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+
+library(tidyverse)
+library(SingleCellExperiment)
+library(Seurat)
+library(biomaRt)
+library(ggplot2)
+library(cowplot)
+library(clustree)
+library(yaml)
+
+#need to update yml file as appropriate
+ini <- read_yaml("find_markers_pipeline.yml")
+
+
+```
+
+
+Set up which files will be analysed and generate an analysis run directory
+
+```{r}
+
+# list of files to be analysed
+# the date of the run needs to be included as a parameter
+# the type of normalisation needs to be included
+# for other parameters used for clustering, see the readme file in the clustering analysis folder
+
+
+file_list <- list.files(paste0(ini$cluster_date, "_Clustering.dir/RDS_objects.dir/clustered/", ini$normalisation_method, "/"), pattern="_filtered_clustered_SeuratObject.rds")
+names(file_list) <- str_replace(file_list, paste0("_filtered_clustered_SeuratObject.rds"), "")
+
+# make a new output folder for each run, with the date in the directory name
+# generate a readme file that shows the parameters used and files analysed
+
+date <- Sys.Date() %>% str_replace_all("-", "")
+directory <- paste0(date,"_","Find_markers.dir")
+dir.create(directory, showWarnings = FALSE)
+
+sink(file = paste0(directory, "/README.txt"))
+cat("This is a description of the following run on ", date, "\n")
+cat("\n")
+cat("Run Location:\n")
+cat(getwd(), "\n")
+cat("\n")
+cat("This run analysed the following samples:\n")
+cat(names(file_list), sep = "\n")
+cat("\n")
+cat("This run follows the clustering analysis on :\n")
+cat(ini$cluster_date, sep = "\n")
+cat("\n")
+cat("Normalisation method used:\n")
+cat(ini$normalisation_method, "\n")
+cat("\n")
+cat("Clustering resolution used:\n")
+cat(ini$resolution, "\n")
+cat("\n")
+cat("Parameters for FindAllMarkers::\n")
+cat("only_pos =", ini$only_pos, "\n")
+cat("min_pct =", ini$min_pct, "\n")
+cat("logfc_threshold =", ini$logfc_threshold, "\n")
+cat("\n")
+
+
+
+sink()
+
+
+```
+
+Read in seurat objects. Each object is from an individual sample and has have normalisation and clustering performed. 
+
+```{r}
+
+
+
+#Make a new list for the so objects
+so <- list()
+# generate a list of sce objects
+for (i in 1:length(file_list)){
+    print(i)
+    so[[i]] <- readRDS(paste0(ini$cluster_date, "_Clustering.dir/RDS_objects.dir/clustered/", ini$normalisation_method, "/", file_list[i]))
+    print(file_list[i])
+    print(so[[i]])
+}
+
+
+```
+
+### Parameters
+Extract some names that depend on the normalisation method performed
+
+```{r}
+
+if (ini$normalisation_method == "SCTransform"){
+        
+        # save the reduction names
+        pca_name <- "sct.pca"
+        umap_name <- "sct.umap"
+        
+        # save the resolution prefix
+        res_prefix <- "SCT_snn_res."
+        
+        # save the assay name
+        assay_name <- "SCT"
+        
+        # save the assay for FindAllMarkers (see below)
+        markers_assay <- "RNA"
+        
+    } else if (ini$normalisation_method == "SCTransformv2"){
+    
+    # save the reduction names
+     pca_name <- "sctv2.pca"
+     umap_name <- "sctv2.umap"
+     
+     # save the resolution prefix
+     res_prefix <- "SCTv2_snn_res."
+     
+     # save the assay name
+     assay_name <- "SCTv2"
+
+     # save the assay for FindAllMarkers (see below)
+     markers_assay <- "SCTv2"
+    
+    } else if (ini$normalisation_method == "LogNormalise"){
+    
+     # save the reduction names
+     pca_name <- "lognorm.pca"
+     umap_name <- "lognorm.umap"
+     
+     # save the resolution prefix
+     res_prefix <- "RNA_snn_res."
+    
+     # save the assay name
+     assay_name <- "RNA"    
+     
+     # save the assay for FindAllMarkers (see below)
+     markers_assay <- "RNA" 
+}
+    
+print(ini$normalisation_method) 
+print(pca_name)
+print(umap_name)
+print(res_prefix)
+print(assay_name)
+print(markers_assay)
+
+```
+
+### Normalisation
+
+Log normalisation was already performed in the Filtering workflow. 
+Here we need to find variable features and perform scaling for downstream visualisation, if we are working with the SCT assay. 
+
+```{r, message=FALSE}
+
+if (ini$normalisation_method == "SCTransform"){
+    for (i in 1:length(so)){
+        DefaultAssay(so[[i]]) <- "RNA"
+        so[[i]] <- so[[i]] %>% 
+           FindVariableFeatures() %>% 
+           ScaleData() 
+        DefaultAssay(so[[i]]) <- "SCT"
+        
+    }
+}
+
+
+```
+
+
+
+### FindMarkers
+
+Run FindAllMarkers on the RNA assay, if waSCTransform v1 or log normalisation was used.
+However, for SCTransformv2 you can run FindAllMarkers on the SCTv2 assay.
+Save the output as a text file
+
+```{r, echo=FALSE, message = FALSE}
+dir.create(paste0(directory, "/Marker_lists/"), showWarnings = FALSE)
+dir.create(paste0(directory, "/Marker_lists/", ini$normalisation_method, "/"), showWarnings = FALSE)
+
+markers <- list()
+
+for (i in 1:length(so)) {
+        
+        # set chosen resolution (default = 0.5)
+        so[[i]][["seurat_clusters"]] <- so[[i]][[paste0(res_prefix, ini$resolution)]]
+
+        # find the markers
+        cat("analysing sample", so[[i]]@project.name, "\n")
+        markers[[i]] <- FindAllMarkers(so[[i]], 
+                                   assay = markers_assay,
+                                   only.pos = ini$only_pos, 
+                                   min.pct = ini$min_pct, 
+                                   logfc.threshold = ini$logfc_threshold)
+        
+        # save the output
+        write.table(markers[[i]], 
+                    paste0(directory, "/Marker_lists/", ini$normalisation_method, "/", so[[i]]@project.name, ".txt"), 
+                    quote = FALSE, sep = "\t")
+
+}
+    
+
+#NB Can read in the text files here if needed
+
+```
+
+
+
+Calculate the top 10 markers for each cluster by log2FC
+
+```{r, top10 markers per cluster, echo=FALSE, results='asis'}
+top10markers <- list()
+for (i in 1:length(so)) {
+top10markers[[i]] <- markers[[i]] %>% 
+    group_by(cluster) %>% 
+    slice_max(n=10, order_by = abs(avg_log2FC))
+}
+
+```
+Plot the top 10 markers as a dotplot
+
+```{r, general markers, fig.height=60, fig.width=20, echo=FALSE, results='asis'}
+plot_list <- list ()
+for (i in 1:length(so)) {
+    plot_list[[i]] <- DotPlot(so[[i]], 
+                              features = unique(top10markers[[i]]$gene),
+                              assay = "RNA") + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()+
+        theme(legend.position="none")
+}
+title <- ggdraw() + draw_label("Top 10 markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 3)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+
+
+```
+
+```{r}
+dir.create(paste0(directory, "/Marker_dotplots/"))
+dir.create(paste0(directory, "/Marker_dotplots/", ini$normalisation_method))
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_top10_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 45, bg = "white")
+
+```
+
+Use the top 10 genes to plot a heatmap
+
+```{r, general markers, fig.height=60, fig.width=15, echo=FALSE, results='asis'}
+plot_list <- list ()
+for (i in 1:length(so)) {
+    plot_list[[i]] <- DoHeatmap(so[[i]], 
+                              features = unique(top10markers[[i]]$gene),
+                              assay = "RNA") + 
+        #scale_colour_gradientn(colours = viridis(256, option = "D"))+ 
+        ggtitle(so[[i]]@project.name)
+}
+title <- ggdraw() + draw_label("Top 10 markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 3)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.02, 1))
+
+p
+
+
+```
+
+```{r}
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/heatmap_top10_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 25, height = 45, bg = "white")
+```
+
+
+### Plot groups of known markers
+
+Plots some general markers
+
+```{r, general markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+plot_list <- list ()
+for (i in 1:length(so)) {
+    plot_list[[i]] <- DotPlot(so[[i]], 
+                              features =c("COL1A1", "COL1A2", "COL3A1", "DCN", "TPM3", "DES", "PECAM1", "NOTCH3", "PAX7", "PTPRC", "CD163", "CD2", "ADIPOQ", "CD36", "CD69", "TNMD", "TSP4", "TNC","ACAN", "BGN", "SCX"),
+                              assay = "RNA") + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("General markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+
+
+```
+
+```{r}
+
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_general_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+
+```
+
+Plot fibroblast markers
+
+```{r, fibroblast markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+
+plot_list <- list ()
+for (i in 1:length(so)) {
+    plot_list[[i]] <- DotPlot(so[[i]], 
+                              features =c("COL5A1", "LOXL1", "LUM", "FBLN1", "FBLN2", "CD34", "PDGFRA", "ACAN", "BGN", "VCAN", "HSPG2", "SDC4P"),
+                              assay = "RNA") + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("Fibroblast markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+
+```
+
+```{r}
+
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_fibroblast_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+
+```
+
+Plot endothelial markers
+
+```{r, endothelial markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+
+plot_list <- list ()
+for (i in 1:length(so)) {
+    plot_list[[i]] <- DotPlot(so[[i]], 
+                              features =c("PECAM1", "SYNPO2", "VCAM1", "FLT1", "KDR", "CD34", "CDH5", "NOTCH3", "ACTA2"),
+                              assay = "RNA")  + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("Endothelial markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+
+```
+
+```{r}
+
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_endothelial_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+
+```
+
+
+Plot muscle markers
+```{r, muscle markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+
+plot_list <- list ()
+for (i in 1:length(so)) {
+    plot_list[[i]] <- DotPlot(so[[i]], 
+                              features =c("TPM3", "DES", "TTN", "NOTCH3", "PAX7", "PTPRC", "CD163", "CD2", "ADIPOQ"),
+                              assay = "RNA")  + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("Muscle markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+```
+
+```{r}
+
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_muscle_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+
+```
+
+Plot mural cell markers
+
+```{r, mural cell markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+
+plot_list <- list ()
+for (i in 1:length(so)) {
+    plot_list[[i]] <- DotPlot(so[[i]], 
+                              features =c("DES", "MCAM", "TAGLN", "NOTCH3", "PDGFRB", "ANPEP"),
+                              assay = "RNA")  + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("Mural cell markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+```
+
+
+```{r}
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_mural_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+```
+
+Plot T cell markers
+```{r, T cell markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+plots <- list ()
+for (i in 1:length(so)) {
+    plots[[i]] <- DotPlot(so[[i]], 
+                          features =c("CD28", "CD69", "KIT", "CD2", "CD3D", "CD3E", "CD3G", "CD8A", "CD8B"), 
+                          assay = "RNA") + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("T cell markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+```
+
+```{r}
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_Tcell_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+```
+
+
+Plot B cell markers
+```{r, B cell markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+
+plots <- list ()
+for (i in 1:length(so)) {
+    plots[[i]] <- DotPlot(so[[i]], 
+                          features =c("MS4A1", "SDC1", "CD37", "BLNK", "CD38", "CD79A", "CD79B", "CD27", "CD78"), 
+                          assay = "RNA") + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("B cell markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+```
+```{r}
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_Bcell_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+```
+
+Plot Macrophage markers
+```{r, Macrophage markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+
+plots <- list ()
+for (i in 1:length(so)) {
+    plots[[i]] <- DotPlot(so[[i]], 
+                          features =c("CD14", "CD16", "CD163", "TREM2", "CX3CR1", "ITGAM", "VSIG4", "MSR1"), 
+                          assay = "RNA") + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+
+title <- ggdraw() + draw_label("Macrophage markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+```
+```{r}
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_Macrophage_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+```
+
+
+#Adipocytes
+```{r, Adipocyte markers, fig.height=20, fig.width=15, echo=FALSE, results='asis'}
+
+plots <- list ()
+for (i in 1:length(so)) {
+    plots[[i]] <- DotPlot(so[[i]], 
+                          features =c("ADIPOQ", "FABP4", "LIPE"), 
+                          assay = "RNA") + 
+         scale_colour_viridis() +
+        ggtitle(so[[i]]@project.name) + coord_flip()
+}
+title <- ggdraw() + draw_label("Adipocyte markers", fontface='bold', size = 24)
+p <- plot_grid(plotlist = plot_list, label_size = 12, ncol = 2)
+p <- plot_grid(title, p, ncol=1, rel_heights=c(0.05, 1))
+
+p
+
+```
+
+```{r}
+ggsave(paste0(directory, "/Marker_dotplots/", ini$normalisation_method, "/dotplot_adipocyte_markers.", ini$file_type), 
+       p, device = ini$file_type, width = 20, height = 28, bg = "white")
+```
+
+```{r, echo=FALSE}
+dir.create (paste0(directory, "/RDS_objects.dir"))
+dir.create (paste0(directory, "/RDS_objects.dir/", ini$normalisation_method))
+
+
+for(i in 1:length(so)){
+     saveRDS(so[[i]], 
+            paste0(directory, "/RDS_objects.dir/", ini$normalisation_method, "/" , 
+                   so[[i]]@project.name, "_decontX_doublet_discard_filtered_clustered_SeuratObject.rds"))
+}
+```
+

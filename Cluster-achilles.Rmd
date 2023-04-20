@@ -28,7 +28,7 @@ Steps in the workflow
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, fig.width = 10, fig.height = 16) #set optimal fig.width and fig.height here
+knitr::opts_chunk$set(echo = FALSE, fig.width = 10, fig.height = 16, message = FALSE) #set optimal fig.width and fig.height here
 
 library(tidyverse)
 library(Seurat)
@@ -66,17 +66,16 @@ names(file_list)
 
 
 # get the positions of unwanted files in the list
-## ? why are these files already removed? 
-# positions <- match(ini$files_to_remove, names(file_list))
+positions <- match(ini$files_to_remove, names(file_list))
 
 # remove certain files using those names
-# file_list <- file_list[-c(positions)] 
+file_list <- file_list[-c(positions)] 
 
 
-# cat ("\n")
-# cat ("File list after sample removal")
-# cat ("\n")
-# names(file_list)
+ cat ("\n")
+ cat ("File list after sample removal")
+ cat ("\n")
+ names(file_list)
 
 
 ```
@@ -91,7 +90,7 @@ date <- Sys.Date() %>% str_replace_all("-", "")
 directory <- paste0(date,"_","Clustering.dir")
 dir.create(directory, showWarnings = FALSE)
 
-sink(file = paste0(directory, "/README.txt"))
+sink(file = paste0(directory, "/README.txt"), append = TRUE)
 cat("This is a description of the following run on ", date, "\n")
 cat("\n")
 cat("Run Location:\n")
@@ -196,13 +195,13 @@ print(res_prefix)
 
 
 
-## Perform Normalisation 
+### Perform Normalisation 
 
 Default method is SCTransform, can also update to logNormalise or SCTransform v2 using the yml file. 
 Perform the downstream steps with default parameters and using 30 PCs (this will be optimised later)
 
 
-```{r, message=FALSE}
+```{r, message=FALSE, warning = FALSE}
 
 for (i in 1:length(so)){
     
@@ -213,7 +212,8 @@ for (i in 1:length(so)){
         
         so[[i]] <- SCTransform(so[[i]],
                            method = "glmGamPoi", #added to increase efficiency
-                           vars.to.regress = "percent_mt") %>% 
+                           vars.to.regress = "percent_mt", 
+                           verbose = FALSE) %>% 
         RunPCA(reduction.name = "sct.pca") %>% 
         FindNeighbors(dims = 1:ini$n_dims, reduction = "sct.pca") %>%
         RunUMAP(dims = 1:ini$n_dims, reduction = "sct.pca", reduction.name = "sct.umap") 
@@ -228,7 +228,8 @@ for (i in 1:length(so)){
                            method = "glmGamPoi", #added to increase efficiency
                            vars.to.regress = "percent_mt", 
                            vst.flavor = "v2", 
-                           new.assay.name = "SCTv2") %>% # using SCTransform v2
+                           new.assay.name = "SCTv2", # using SCTransform v2
+                           verbose = FALSE) %>% 
         RunPCA(reduction.name = "sctv2.pca") %>% 
         FindNeighbors(dims = 1:ini$n_dims, reduction = "sctv2.pca") %>%
         RunUMAP(dims = 1:ini$n_dims, reduction = "sctv2.pca", reduction.name = "sctv2.umap") 
@@ -259,12 +260,18 @@ for (i in 1:length(so)){
 ### Add multiple resolutions of clustering
 Calculate clusters at resolutions 0.1 to 1 with 0.1 intervals.
 
-```{r, message=FALSE}
+SC best practise recommends using the Leiden algorithm which has improved performance over the Louvain algorithm. 
+https://www.sc-best-practices.org/cellular_structure/clustering.html
+NB this requires the leidenAlg package
+
+```{r, message=FALSE, warning = FALSE}
 
 so <- lapply(so, FindClusters, resolution = seq(0.1, 1, 0.1))
 
 
 ```
+
+
 
 
 ### Save the RDS objects
@@ -287,7 +294,7 @@ for(i in 1:length(so)){
 ### Plot the variable features following normalisation
 
 
-```{r, fig.width=12, fig.height=18, message=FALSE}
+```{r, fig.width=12, fig.height=18, message=FALSE, warning = FALSE}
 plot_list <- list()
 
 for (i in 1:length(so)){
@@ -313,7 +320,8 @@ p
 
 ```{r, include=FALSE}
 #save the plot
-dir.create(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method), showWarnings = FALSE)
+dir.create(paste0(directory, "/Clustering_Figures.dir/"))
+dir.create(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method))
 ggsave(paste0(directory, "/Clustering_Figures.dir/", ini$normalisation_method, "/HVG.", ini$file_format), 
        p, device = ini$file_format, width = 10, height = 18, bg = "white")
 

@@ -1,0 +1,17 @@
+---
+title: "Test_Rmarkdown"
+author: "Carla Cohen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Here is a test R markdown script
+
+```{r}
+print("test markdown script")
+```
+
