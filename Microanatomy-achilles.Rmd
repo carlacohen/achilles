@@ -1,0 +1,188 @@
+---
+title: "Microanatomy comparison"
+author: "Carla Cohen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+The aim of this notebook is to compare the achilles tendon microanatomies. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+library(Seurat)
+library(cowplot)
+library(yaml)
+library(viridis)
+
+ini <- read_yaml("microanatomy_pipeline.yml")
+
+```
+
+Set up
+
+```{r}
+
+# list of files to be analysed
+# the date of the run needs to be included as a parameter
+# the type of normalisation needs to be included
+
+file_list <- list.files(paste0(ini$annotation_date, "_Annotation.dir/RDS_objects.dir/", ini$normalisation_method, "/"), pattern=".rds")
+names(file_list) <- str_replace(file_list, ".rds", "")
+
+# make a new output folder for each run, with the date in the directory name
+# generate a readme file that shows the parameters used and files analysed
+
+date <- Sys.Date() %>% str_replace_all("-", "")
+directory <- paste0(date,"_","Microantomy.dir")
+dir.create(directory, showWarnings = FALSE)
+
+sink(file = paste0(directory, "/README.txt"))
+cat("This is a description of the following run on ", date, "\n")
+cat("\n")
+cat("Run Location:\n")
+cat(getwd(), "\n")
+cat("\n")
+cat("This run analysed the following samples:\n")
+cat(names(file_list), sep = "\n")
+cat("\n")
+cat("This run follows the annotation analysis on :\n")
+cat(ini$annotation_date, sep = "\n")
+cat("\n")
+cat("Normalisation method used:\n")
+cat(ini$normalisation_method, "\n")
+cat("\n")
+cat("Clustering resolution used:\n")
+cat(ini$resolution, "\n")
+cat("\n")
+
+sink()
+
+
+```
+
+Read in the integrated Seurat object
+
+```{r}
+
+so.harmony <- readRDS(paste0(ini$annotation_date, "_Annotation.dir/RDS_objects.dir/", ini$normalisation_method, "/", file_list[1]))
+so.harmony
+
+```
+
+Plot the UMAP separated by microanatomy
+
+```{r, fig.height=10, fig.width=14}
+
+p <- DimPlot(so.harmony, reduction = "harmony.umap", label = TRUE, split.by = "microanatomical_site", ncol = 2)
+p
+```
+Question: what are the number of cells in each cluster for each microanatomy?
+
+```{r}
+#create a df with the relevant info
+df <- so.harmony[[]] %>% dplyr::select (microanatomical_site, seurat_clusters)
+df$identity <- Idents(so.harmony)
+df
+
+# create a second df with numbers of cells per cluster per microanatomy
+cell_numbers <- data.frame()
+
+for (level in levels(df$seurat_clusters)){
+    
+    enth <- df %>% filter(seurat_clusters == level) %>% filter(microanatomical_site == "Enth") %>% nrow()
+    mb <- df %>% filter(seurat_clusters == level) %>% filter(microanatomical_site == "MB") %>% nrow()
+    mtj <- df %>% filter(seurat_clusters == level) %>% filter(microanatomical_site == "MTJ") %>% nrow()
+    muscle <- df %>% filter(seurat_clusters == level) %>% filter(microanatomical_site == "muscle") %>% nrow()
+    total <- df %>% filter(seurat_clusters == level) %>% nrow()
+    ident <- df %>% filter(seurat_clusters == level) %>% slice_head(n=1) %>% pull (identity)
+
+    column_number <- as.numeric(level) + 1
+
+    cell_numbers[column_number, 1] <- level
+    cell_numbers[column_number, 2] <- enth
+    cell_numbers[column_number, 3] <- mb
+    cell_numbers[column_number, 4] <- mtj
+    cell_numbers[column_number, 5] <- muscle
+    cell_numbers[column_number, 6] <- total
+    cell_numbers[column_number, 7] <- ident
+
+    
+}
+
+colnames(cell_numbers) <- c("cluster", "Enth", "MB", "MTJ", "Muscle", "Total", "Identity")
+
+cell_numbers
+
+```
+ 
+ Plot the total number of cells in each cluster
+```{r}
+ggplot(cell_numbers, aes (x = Identity, y = Total))+
+    geom_col()+
+    ggtitle("Number of cells per cluster")+
+    theme(plot.title = element_text(size = 24))+
+    theme_cowplot()+
+    theme(axis.text.x = element_text(angle = 45, hjust=1))+
+    theme(axis.title.x = element_blank())
+```
+ 
+ 
+ 
+ 
+ Tidy the data!
+ 
+```{r}
+cell_number_tidy <- cell_numbers %>% 
+    pivot_longer(2:5, values_to = "number_of_cells", names_to = "microanatomy")
+cell_number_tidy
+```
+ 
+
+
+Plot
+
+```{r, fig.width = 10, fig.height=6}
+p <- ggplot(cell_number_tidy, aes(x = Identity, y = number_of_cells, fill = microanatomy))+
+    geom_col(position = "dodge")+
+    ggtitle("Number of cells per cluster by microanatomy")+
+    theme(plot.title = element_text(size = 24))+
+    scale_fill_viridis_d(begin = 0, end = 0.75)+
+    theme_cowplot()+
+    theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+Make a df with cell fraction per microanatomy
+
+```{r}
+cell_fractions <- cell_numbers
+
+cell_fractions$Enth_fraction <- cell_fractions$Enth/sum(cell_fractions$Enth)
+cell_fractions$MB_fraction <- cell_fractions$MB/sum(cell_fractions$MB)
+cell_fractions$MTJ_fraction <- cell_fractions$MTJ/sum(cell_fractions$MTJ)
+cell_fractions$Muscle_fraction <- cell_fractions$Muscle/sum(cell_fractions$Muscle)
+
+cell_fractions <- cell_fractions %>% dplyr::select(!c("Enth", "MB", "MTJ", "Muscle", "Total"))
+cell_fractions
+```
+Tidy the data!
+ 
+```{r}
+cell_fraction_tidy <- cell_fractions %>% 
+    pivot_longer(3:6, values_to = "fraction_of_cells", names_to = "microanatomy")
+cell_fraction_tidy
+```
+Plot the fraction of cells per cluster by microanatomy
+
+```{r, fig.width=10, fig.height=6}
+p <- ggplot(cell_fraction_tidy, aes(x = Identity, y = fraction_of_cells, fill = microanatomy))+
+    geom_col(position = "dodge")+
+    ggtitle("Fraction of cells per cluster by microanatomy")+
+    theme(plot.title = element_text(size = 24))+
+    scale_fill_viridis_d(begin = 0, end = 0.75)+
+    theme_cowplot()+
+    theme(axis.text.x = element_text(angle = 45, hjust=1))
+p
+```
+
