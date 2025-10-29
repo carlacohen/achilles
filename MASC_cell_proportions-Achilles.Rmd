@@ -1,0 +1,155 @@
+---
+title: "Cell proportions"
+author: "Carla Cohen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Cell type proportion analysis
+
+Aim: To analyse the how cell proportions vary across microanatomy
+
+Using MASC as recommended by Devika Agarwal  
+https://github.com/immunogenomics/masc  
+https://www.science.org/doi/10.1126/scitranslmed.aaq0305  
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+### Set up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(Seurat)
+library(tidyverse)
+library(cowplot)
+#library(devtools)
+#install_github("immunogenomics/masc")
+#install.packages("SignacX") 
+library(MASC)
+library(SignacX)
+
+
+# make a new output folder for each run, with the date & time in the directory name
+date <- Sys.Date() %>% str_replace_all("-", "")
+time <- format(Sys.time(), "%X") %>% str_replace_all(":", "-") %>%
+    str_sub(1, 5)
+directory <- paste0(date,"_", time, "_MASC_Cell_Proportions.dir")
+dir.create(directory, showWarnings = FALSE)
+
+# microanatomy colours
+Okabe_Ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000")
+ma.cols <-  c(Enth = Okabe_Ito[3], MB = Okabe_Ito[5], MTJ = Okabe_Ito[6], muscle = Okabe_Ito[7])
+```
+
+Read in Seurat object
+
+```{r}
+so.achilles <- readRDS("/project/tendonhca/shared/chromium/analysis/20231006_achilles/20240119_11-02_Fine_annotation.dir/RDS_objects.dir/Achilles_integrated_annotated.rds")
+so.achilles
+```
+
+Simplify cell names
+
+```{r}
+df <- data.frame("cell_annotation_update" = unique( so.achilles$cell_annotation_update))
+df$cell_annotation <- c("Adipocyte", 
+                        "Mural", 
+                        "ITGA10Fibroblasts", 
+                        "VEC", 
+                        "NEGR1Fibroblasts", 
+                        "Macrophages", 
+                        "Tcells", 
+                        "LEC", 
+                        "Slowtwitch", 
+                        "Nerve", 
+                        "Fasttwitch", 
+                        "Granulocytes", 
+                        "Satellite", 
+                        "Transitionalmuscle",
+                         "Bcells")
+df
+
+cell_annotation <- left_join(so.achilles[[]], df)
+rownames(cell_annotation) <- colnames(so.achilles)
+cell_annotation <- cell_annotation %>% select("cell_annotation")
+
+so.achilles <- AddMetaData(so.achilles, metadata = cell_annotation, col.name = "cell_annotation")
+```
+
+
+### Run MASC
+
+Based on this vignette: https://cran.r-project.org/web/packages/SignacX/vignettes/signac-Seurat_AMP.html
+kidney is a seurat object from public data
+M is metadata file
+Meta_mapped is metadata file for only those cells present in the so
+
+### Generate sample level metadata 
+
+```{r}
+
+M <- so.achilles[[]]
+M$cell_names <- rownames(so.achilles[[]]) # these steps not actually needed for the Achilles data
+Meta_mapped = M[match(colnames(so.achilles), M$cell_name), ] # not needed
+# Meta_mapped$CellStates = celltypes$CellStates # we have this as Meta_mapped$cell_annotation
+# Meta_mapped$disease = factor(Meta_mapped$disease) # make sure the disease status is a factor. 
+# For achilles this would be microanatomical_site
+Meta_mapped$microanatomical_site <- factor(Meta_mapped$microanatomical_site)
+Meta_mapped$cell_annotation <- factor(Meta_mapped$cell_annotation)
+Meta_mapped
+
+Q = MASC(dataset = Meta_mapped, 
+         cluster = Meta_mapped$cell_annotation, 
+         contrast = "microanatomical_site", 
+         random_effects = c("sample", "sex", "sequencing_date"), 
+         verbose = TRUE)
+```
+Look at the results
+```{r}
+Q
+```
+```{r}
+p <- ggplot(Q, aes(x = microanatomical_siteMB.OR, y = cluster)) + 
+    geom_vline(aes(xintercept = 0), linewidth = .25, linetype = "dashed") + 
+    geom_errorbarh(aes(xmax = microanatomical_siteMB.OR.95pct.ci.upper, 
+                       xmin = microanatomical_siteMB.OR.95pct.ci.lower), 
+                   size = .5, height = .2, color = "gray50") +
+    geom_point(size = 3.5, aes(colour = -log10(model.pvalue))) +
+    theme_bw()+
+    theme(panel.grid.minor = element_blank()) +
+    ylab("") +
+    xlab("Odds ratio") +
+    ggtitle("Odds ratios of cell type proportions relative to MB")
+p 
+```
+Re run the test and only use sample as the covariate
+```{r}
+Q2 = MASC(dataset = Meta_mapped, 
+         cluster = Meta_mapped$cell_annotation, 
+         contrast = "microanatomical_site", 
+         random_effects = "sample", 
+         verbose = TRUE)
+Q2
+```
+
+```{r}
+p <- ggplot(Q2, aes(x = microanatomical_siteMB.OR, y = cluster)) + 
+    geom_vline(aes(xintercept = 0), linewidth = .25, linetype = "dashed") + 
+    geom_errorbarh(aes(xmax = microanatomical_siteMB.OR.95pct.ci.upper, 
+                       xmin = microanatomical_siteMB.OR.95pct.ci.lower), 
+                   size = .5, height = .2, color = "gray50") +
+    geom_point(size = 3.5, aes(colour = -log10(model.pvalue))) +
+    theme_bw()+
+    theme(panel.grid.minor = element_blank()) +
+    ylab("") +
+    xlab("Odds ratio") +
+    ggtitle("Odds ratios of cell type proportions relative to MB")
+p 
+```
+
+
+
+
